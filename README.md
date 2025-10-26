@@ -63,8 +63,8 @@ The repo now ships with a `wrangler.toml` and npm scripts so you can deploy enti
 1. Install the Python bits (`uv pip install -r requirements.txt` or `pip install -r requirements.txt`).
 2. Install the CLI tooling once: `npm install` (this pulls in Wrangler as a devDependency).
 3. Build the static bundle with `npm run build` (runs `python3 export_static.py` under the hood).
-4. Deploy with `npm run deploy`. On Cloudflare Pages this command is a no-op that simply verifies `dist/` exists and exits, allowing the platform’s default uploader to publish the build output. When you run the same script locally it rebuilds `dist/` (unless `WF_SKIP_DEPLOY_BUILD=1`) and shells out to `wrangler pages deploy dist --project-name warning-forever`, so you can still push ad-hoc deployments if you have a valid API token.
+4. Deploy with `npm run deploy`. By default this command just checks that `dist/` exists and exits, which satisfies Cloudflare Pages’ “Deploy command required” constraint while leaving the actual upload to Pages. If you want to run Wrangler yourself (for a manual deploy or another CI pipeline), set `WF_USE_WRANGLER=1` and re-run the command; it will rebuild `dist/` (unless `WF_SKIP_DEPLOY_BUILD=1`) and call `wrangler pages deploy dist --project-name warning-forever`.
 
 To preview the static output locally with Cloudflare’s emulator, run `npm run preview`, which rebuilds `dist/` and launches `npx wrangler pages dev dist --local`.
 
-If you need to authenticate outside of Cloudflare Pages, run `npx wrangler login` once or set both `CLOUDFLARE_ACCOUNT_ID` and an API token (`CLOUDFLARE_API_TOKEN`) that has Pages write access. After that, either `npm run deploy` or a manual `npx wrangler pages deploy dist` (with those env vars in place) will reuse the cached credentials.
+If you need to authenticate outside of Cloudflare Pages, run `npx wrangler login` once or set both `CLOUDFLARE_ACCOUNT_ID` and an API token (`CLOUDFLARE_API_TOKEN`) that has Pages write access. After that, run `WF_USE_WRANGLER=1 npm run deploy` (or call `npx wrangler pages deploy dist` directly) to push the static output.

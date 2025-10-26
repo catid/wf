@@ -6,7 +6,7 @@
  * account this project lives under.
  */
 const { spawn, spawnSync } = require("child_process");
-const { existsSync } = require("fs");
+const { existsSync, readdirSync } = require("fs");
 const path = require("path");
 
 const DEFAULT_ACCOUNT_ID = "109120572c26f26b602e7db3339a6591";
@@ -18,15 +18,28 @@ if (!env.CLOUDFLARE_ACCOUNT_ID) {
   env.CLOUDFLARE_ACCOUNT_ID = DEFAULT_ACCOUNT_ID;
 }
 
-const isPagesCI = Boolean(env.CF_PAGES || env.CF_PAGES_BRANCH || env.CF_PAGES_PROJECT_NAME);
-const shouldBuild = !isPagesCI && env.WF_SKIP_DEPLOY_BUILD !== "1";
+const shouldUseWrangler =
+  typeof env.WF_USE_WRANGLER === "string" &&
+  ["1", "true", "yes"].includes(env.WF_USE_WRANGLER.toLowerCase());
+const shouldBuild = shouldUseWrangler && env.WF_SKIP_DEPLOY_BUILD !== "1";
 
-if (isPagesCI) {
+function ensureDistExists() {
   if (!existsSync(DIST_DIR)) {
-    console.error("Cloudflare Pages deploy step could not find dist/. Did the build command run?");
+    console.error("wf deploy: dist/ is missing. Run `npm run build` first.");
     process.exit(1);
   }
-  console.log("Cloudflare Pages environment detected; skipping manual Wrangler upload so the default Pages deployment can publish dist/.");
+  const entries = readdirSync(DIST_DIR);
+  if (entries.length === 0) {
+    console.error("wf deploy: dist/ is empty. Run `npm run build` first.");
+    process.exit(1);
+  }
+}
+
+if (!shouldUseWrangler) {
+  ensureDistExists();
+  console.log(
+    "wf deploy: dist/ verified. Cloudflare Pages will upload these files automatically; no Wrangler invocation needed."
+  );
   process.exit(0);
 }
 
@@ -40,6 +53,8 @@ if (shouldBuild) {
     process.exit(typeof result.status === "number" ? result.status : 1);
   }
 }
+
+ensureDistExists();
 
 if (!env.CLOUDFLARE_API_TOKEN && !env.CLOUDFLARE_API_KEY) {
   console.error(
