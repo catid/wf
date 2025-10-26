@@ -126,6 +126,7 @@
       this.master = null;
       this.noiseBuffer = null;
       this.enabled = false;
+      this.warningClip = null;
     }
     unlock() {
       if (this.enabled) return;
@@ -253,6 +254,31 @@
       this.noiseBurst({ duration: 0.12, filter: "bandpass", startFreq: 6000, endFreq: 1400, level: 0.22 });
     }
     playWarning() {
+      if (!this.warningClip && typeof Audio !== "undefined") {
+        this.warningClip = new Audio(WARNING_TRACK);
+        this.warningClip.preload = "auto";
+        this.warningClip.loop = false;
+        this.warningClip.volume = 0.85;
+      }
+      const clip = this.warningClip;
+      if (clip) {
+        try {
+          clip.pause();
+          clip.currentTime = 0;
+          const playAttempt = clip.play();
+          if (playAttempt && typeof playAttempt.catch === "function") {
+            playAttempt.catch(() => {
+              this.playWarningFallback();
+            });
+          }
+          return;
+        } catch (error) {
+          // Fall through to procedural fallback.
+        }
+      }
+      this.playWarningFallback();
+    }
+    playWarningFallback() {
       // Relay clack + capacitor sizzle before the siren spins up.
       this.oscBurst(
         [
@@ -381,6 +407,7 @@
     "static/audio/Starfire Collision.mp3",
     "static/audio/Void Barrage.mp3",
   ];
+  const WARNING_TRACK = "static/audio/klaxon.mp3";
 
   class MusicPlayer {
     constructor(tracks) {
@@ -713,15 +740,16 @@
       this.reset(width, height, true);
     }
     reset(width, height, initial = false) {
-      this.x = initial ? Math.random() * width : width + 20;
-      this.y = Math.random() * height;
-      this.speed = 80 + Math.random() * 160;
-      this.size = Math.random() * 1.6 + 0.4;
-      this.alpha = 0.35 + Math.random() * 0.5;
+      this.x = Math.random() * width;
+      this.y = initial ? Math.random() * height : height + 20;
+      this.speed = 120 + Math.random() * 180;
+      this.size = Math.random() * 1.2 + 0.4;
+      this.trail = 6 + Math.random() * 16;
+      this.alpha = 0.35 + Math.random() * 0.45;
     }
     update(dt, width, height) {
-      this.x -= this.speed * dt;
-      if (this.x < -20) {
+      this.y -= this.speed * dt;
+      if (this.y < -20) {
         this.reset(width, height);
       }
     }
@@ -729,7 +757,7 @@
       ctx.save();
       ctx.globalAlpha = this.alpha;
       ctx.fillStyle = "#4fd8ff";
-      ctx.fillRect(this.x, this.y, this.size * 3, this.size);
+      ctx.fillRect(this.x, this.y, this.size, this.trail);
       ctx.restore();
     }
   }
@@ -1516,8 +1544,9 @@
       this.level = level;
       this.canvasWidth = canvasWidth;
       this.canvasHeight = canvasHeight;
-      this.pos = new Vec2(canvasWidth * 0.72, canvasHeight * 0.25);
-      this.vel = new Vec2((Math.random() * 0.5 + 0.4) * 60, 0);
+      this.pos = new Vec2(canvasWidth * 0.5, canvasHeight * 0.22);
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      this.vel = new Vec2(dir * (Math.random() * 0.5 + 0.3) * 60, 0);
       this.heading = -Math.PI / 2;
       this.angularVel = 0;
       this.timeAlive = 0;
@@ -2020,11 +2049,11 @@
         }
         this.pos.add(this.vel.clone().scale(dt));
 
-        const hardMarginX = Math.max(140, this.canvasWidth * 0.12);
-        const hardTop = Math.max(100, this.canvasHeight * 0.14);
-        const hardBottom = this.canvasHeight * 0.52;
-        const leftBound = this.canvasWidth * 0.55;
-        const rightBound = this.canvasWidth - hardMarginX;
+        const horizontalMargin = Math.max(120, this.canvasWidth * 0.15);
+        const hardTop = Math.max(80, this.canvasHeight * 0.08);
+        const hardBottom = Math.min(this.canvasHeight * 0.45, this.canvasHeight * 0.5);
+        const leftBound = horizontalMargin;
+        const rightBound = this.canvasWidth - horizontalMargin;
         if (this.pos.x < leftBound) {
           this.pos.x = leftBound;
           if (this.vel.x < 0) this.vel.x *= -0.4;
@@ -2947,7 +2976,7 @@
 
   class Player {
     constructor(canvasWidth, canvasHeight) {
-      this.pos = new Vec2(canvasWidth * 0.28, canvasHeight * 0.7);
+      this.pos = new Vec2(canvasWidth * 0.5, canvasHeight * 0.8);
       this.vel = new Vec2();
       this.radius = 14;
       this.maxSpeed = 640;
@@ -2958,7 +2987,7 @@
       this.maxArmor = 5;
       this.armor = this.maxArmor;
       this.invulnerable = 0;
-      this.fireDirection = new Vec2(1, 0);
+      this.fireDirection = new Vec2(0, -1);
       this.hitFlash = 0;
     }
     update(dt, input, canvasWidth, canvasHeight) {
@@ -3021,7 +3050,7 @@
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
-      ctx.rotate(angle);
+      ctx.rotate(angle - Math.PI / 2);
       if (this.invulnerable > 0 && Math.floor(this.invulnerable * 12) % 2 === 0) {
         ctx.globalAlpha = 0.35;
       }
@@ -3050,7 +3079,6 @@
       this.enemyMissiles = [];
       this.enemyLasers = [];
       this.playerDeath = null;
-      this.pendingMusicRestart = false;
       this.reset();
     }
     reset() {
@@ -3075,14 +3103,18 @@
       this.messageTimer = 0;
       hudMessage.textContent = "";
       this.updateHUD();
-      AUDIO.playWarning();
-      if (this.pendingMusicRestart) {
-        MUSIC.scheduleStart(1500);
-        this.pendingMusicRestart = false;
-      }
+      this.beginLevel(false);
     }
     updateHUD() {
       hudScore.textContent = `Score: ${this.score}`;
+    }
+    beginLevel(advanceTrack = false) {
+      AUDIO.playWarning();
+      if (advanceTrack) {
+        MUSIC.queueNext(0);
+      } else {
+        MUSIC.start();
+      }
     }
     update(dt) {
       const width = canvas.width / DPR;
@@ -3334,7 +3366,6 @@
       };
       this.player.invulnerable = 999;
       this.player.vel.set(0, 0);
-      this.pendingMusicRestart = true;
       MUSIC.stop();
       AUDIO.playBossExplosion();
     }
@@ -3369,13 +3400,12 @@
       this.score += bonus;
       hudMessage.textContent = `Boss defeated! +${bonus} pts`;
       this.messageTimer = 3;
-      MUSIC.queueNext(2000);
       AUDIO.playBossExplosion();
       this.level += 1;
       this.levelTimer = 0;
       this.comboMultiplier = Math.min(this.comboMultiplier + 0.4, 8);
       this.boss = new Boss(this.level, canvas.width / DPR, canvas.height / DPR);
-      AUDIO.playWarning();
+      this.beginLevel(true);
       this.enemyBullets = [];
       this.enemyMissiles = [];
       this.enemyLasers = [];
