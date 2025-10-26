@@ -588,6 +588,11 @@
   const MUSIC = new MusicPlayer(MUSIC_TRACKS);
   let audioUnlockTriggered = false;
   let initialStartReleased = false;
+
+  const haltLevelMusic = () => {
+    pendingMusicStart = false;
+    MUSIC.stop();
+  };
   const engageAudioSystems = () => {
     if (!audioUnlockTriggered) {
       audioUnlockTriggered = true;
@@ -3866,7 +3871,7 @@
       };
       this.player.invulnerable = 999;
       this.player.vel.set(0, 0);
-      MUSIC.stop();
+      haltLevelMusic();
       AUDIO.playBossExplosion();
     }
     updatePlayerDeath(dt) {
@@ -3900,6 +3905,7 @@
       this.score += bonus;
       hudMessage.textContent = `Boss defeated! +${bonus} pts`;
       this.messageTimer = 3;
+      haltLevelMusic();
       AUDIO.playBossExplosion();
       this.level += 1;
       this.levelTimer = 0;
@@ -4015,6 +4021,7 @@
     }
     engageAudioSystems();
     game.releaseInitialStart();
+    startLoop();
   };
 
   if (startButton) {
@@ -4027,6 +4034,8 @@
     });
   }
   let lastTime = performance.now();
+  let loopRunning = false;
+  let rafHandle = null;
 
   function loop(now) {
     const rawDt = Math.min((now - lastTime) / 1000, 0.033);
@@ -4034,8 +4043,13 @@
     const scaledDt = scaleDelta(rawDt);
     game.update(scaledDt);
     game.draw();
-    requestAnimationFrame(loop);
+    rafHandle = requestAnimationFrame(loop);
   }
 
-  requestAnimationFrame(loop);
+  function startLoop() {
+    if (loopRunning) return;
+    loopRunning = true;
+    lastTime = performance.now();
+    rafHandle = requestAnimationFrame(loop);
+  }
 })();

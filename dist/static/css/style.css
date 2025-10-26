@@ -83,48 +83,13 @@ canvas {
     pointer-events: none;
 }
 
-.start-panel {
-    width: min(360px, 90vw);
-    padding: clamp(1.5rem, 4vw, 2.5rem);
-    border-radius: 22px;
-    text-align: center;
-    background: rgba(4, 12, 24, 0.85);
-    border: 1px solid rgba(92, 217, 255, 0.35);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 20px rgba(65, 155, 255, 0.45);
-    animation: panelFloat 6s ease-in-out infinite;
-}
-
-.start-panel h1 {
-    margin: 0.4rem 0 0.6rem;
-    font-size: clamp(1.8rem, 5vw, 2.6rem);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #f7fbff;
-    text-shadow: 0 8px 18px rgba(0, 0, 0, 0.6);
-}
-
-.start-kicker {
-    margin: 0;
-    font-size: 0.9rem;
-    letter-spacing: 0.35em;
-    text-transform: uppercase;
-    color: #68dcff;
-    opacity: 0.75;
-}
-
-.start-copy {
-    margin: 0 0 1.4rem;
-    font-size: 0.95rem;
-    color: rgba(216, 244, 255, 0.85);
-}
-
 .start-button {
     position: relative;
     border: none;
-    padding: 0.9rem 2.8rem;
+    padding: 1.1rem 3.6rem;
     border-radius: 999px;
-    font-size: 1.1rem;
-    letter-spacing: 0.2em;
+    font-size: 1.4rem;
+    letter-spacing: 0.3em;
     text-transform: uppercase;
     color: #03111f;
     background: linear-gradient(135deg, #75f7ff, #4db4ff 40%, #ff9ad9 85%);
