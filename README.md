@@ -18,6 +18,16 @@ python server.py
 
 `server.py` is only there if you want Flask’s auto-reloader while poking at the JavaScript; any HTTP server will do.
 
+## Cloudflare Pages (or other hosts that demand a build step)
+
+Some hosts—Cloudflare Pages included—expect a “build command” even when you just want to upload pre-made assets. To satisfy that requirement, the repo includes a tiny `package.json` with a single script:
+
+```bash
+npm run build
+```
+
+The script simply copies `index.html` and `static/` into `dist/`, which you can point your Pages project at. There are no Node dependencies, bundlers, or Wrangler configs involved—just a convenience shim so CI/CD platforms see the output they expect.
+
 ## Controls & Mechanics
 
 - Thrust with `WASD` or the arrow keys; the ship auto-fires a vertical stream.
