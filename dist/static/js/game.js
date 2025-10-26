@@ -439,7 +439,9 @@
         this.explosionClip.loop = false;
         this.explosionClip.volume = 0.92;
       }
+      const previousVolume = this.explosionClip.volume;
       this.explosionClip.muted = true;
+      this.explosionClip.volume = 0;
       const seed = this.explosionClip.play();
       const finishPrime = () => {
         try {
@@ -447,6 +449,7 @@
           this.explosionClip.currentTime = 0;
         } catch (error) {}
         this.explosionClip.muted = false;
+        this.explosionClip.volume = previousVolume;
         this.explosionPrimed = true;
       };
       if (seed && typeof seed.finally === "function") {
