@@ -6,9 +6,12 @@
  * account this project lives under.
  */
 const { spawn, spawnSync } = require("child_process");
+const { existsSync } = require("fs");
+const path = require("path");
 
 const DEFAULT_ACCOUNT_ID = "109120572c26f26b602e7db3339a6591";
 const PROJECT_NAME = "warning-forever";
+const DIST_DIR = path.resolve(__dirname, "..", "dist");
 
 const env = { ...process.env };
 if (!env.CLOUDFLARE_ACCOUNT_ID) {
@@ -17,6 +20,15 @@ if (!env.CLOUDFLARE_ACCOUNT_ID) {
 
 const isPagesCI = Boolean(env.CF_PAGES || env.CF_PAGES_BRANCH || env.CF_PAGES_PROJECT_NAME);
 const shouldBuild = !isPagesCI && env.WF_SKIP_DEPLOY_BUILD !== "1";
+
+if (isPagesCI) {
+  if (!existsSync(DIST_DIR)) {
+    console.error("Cloudflare Pages deploy step could not find dist/. Did the build command run?");
+    process.exit(1);
+  }
+  console.log("Cloudflare Pages environment detected; skipping manual Wrangler upload so the default Pages deployment can publish dist/.");
+  process.exit(0);
+}
 
 if (shouldBuild) {
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -27,6 +39,13 @@ if (shouldBuild) {
   if (result.status !== 0) {
     process.exit(typeof result.status === "number" ? result.status : 1);
   }
+}
+
+if (!env.CLOUDFLARE_API_TOKEN && !env.CLOUDFLARE_API_KEY) {
+  console.error(
+    "No Cloudflare credentials detected. Set CLOUDFLARE_API_TOKEN (preferred) or CLOUDFLARE_API_KEY/CLOUDFLARE_EMAIL to run Wrangler locally."
+  );
+  process.exit(1);
 }
 
 const runner = process.platform === "win32" ? "npx.cmd" : "npx";
