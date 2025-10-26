@@ -733,6 +733,18 @@
       }
       return dir;
     }
+    getThrustInput() {
+      if (this.pointerDir.length() > 0) {
+        return this.pointerDir.clone();
+      }
+      const dir = new Vec2();
+      if (this.isDown("KeyW") || this.isDown("ArrowUp")) dir.y -= 1;
+      if (this.isDown("KeyS") || this.isDown("ArrowDown")) dir.y += 1;
+      if (this.isDown("KeyA") || this.isDown("ArrowLeft")) dir.x -= 1;
+      if (this.isDown("KeyD") || this.isDown("ArrowRight")) dir.x += 1;
+      if (dir.length() > 0) dir.normalize();
+      return dir;
+    }
   }
 
   class Star {
@@ -860,6 +872,11 @@
       this.vel = initialDir.scale(speed);
       this.speed = speed;
       this.turnRate = turnRate;
+      this.turnRateMax = turnRate;
+      this.turnRateMin = options.minTurnRate ?? turnRate * 0.35;
+      this.agility = 1;
+      this.minAgility = options.minAgility ?? 0.25;
+      this.agilityDecay = options.agilityDecay ?? 0.35;
       this.color = color;
       this.radius = 8;
       this.life = 4.2;
@@ -874,7 +891,9 @@
         const desired = target.clone().sub(this.pos);
         if (desired.length() > 1e-6) {
           const desiredAngle = Math.atan2(desired.y, desired.x);
-          headingAngle = lerpAngle(headingAngle, desiredAngle, this.turnRate * dt);
+          this.agility = Math.max(this.minAgility, this.agility - this.agilityDecay * dt);
+          const effectiveTurn = lerp(this.turnRateMin, this.turnRateMax, this.agility);
+          headingAngle = lerpAngle(headingAngle, desiredAngle, effectiveTurn * dt);
           this.vel = Vec2.fromAngle(headingAngle, this.speed);
         }
       }
@@ -1313,26 +1332,32 @@
       fire(segment, boss, playerPos, level) {
         const muzzle = segment.worldEnd.clone();
         const missiles = [];
-        const volleySize = 4;
-        const vertical = Math.random() < 0.5 ? 1 : -1;
-        const baseAngle = vertical > 0 ? Math.PI / 2 : -Math.PI / 2;
-        const fanSpread = 0.4;
-        const spacing = 26;
-        for (let i = 0; i < volleySize; i += 1) {
-          const lerp = volleySize > 1 ? i / (volleySize - 1) : 0.5;
-          const offsetFactor = lerp - 0.5;
-          const lateral = Vec2.fromAngle(segment.absoluteAngle + Math.PI / 2, offsetFactor * spacing);
-          const spawnPos = muzzle.clone().add(lateral);
-          const initialDir = Vec2.fromAngle(baseAngle + offsetFactor * fanSpread, 1);
-          const turnDelay = 0.22 + Math.random() * 0.12;
-          missiles.push(
-            new Missile(spawnPos, playerPos, 240 + level * 16, 0.99, "#ffffff", {
-              initialDirection: initialDir,
-              turnDelay,
-            })
-          );
-        }
-        AUDIO.playMissileLaunch(volleySize);
+        const missilesPerSide = 2;
+        const fanSpread = 0.28;
+        const spacing = 32;
+        const sides = [-1, 1];
+        sides.forEach((orientation) => {
+          const baseAngle = orientation > 0 ? 0 : Math.PI;
+          for (let i = 0; i < missilesPerSide; i += 1) {
+            const lerpValue = missilesPerSide > 1 ? i / (missilesPerSide - 1) : 0.5;
+            const offsetFactor = lerpValue - 0.5;
+            const lateral = Vec2.fromAngle(baseAngle + Math.PI / 2, offsetFactor * spacing);
+            const forward = Vec2.fromAngle(baseAngle, 18 + offsetFactor * 4);
+            const spawnPos = muzzle.clone().add(lateral).add(forward);
+            const initialDir = Vec2.fromAngle(baseAngle + offsetFactor * fanSpread, 1);
+            const turnDelay = 0.12 + Math.random() * 0.08;
+            missiles.push(
+              new Missile(spawnPos, playerPos, 250 + level * 18, 1.4, "#ffffff", {
+                initialDirection: initialDir,
+                turnDelay,
+                minTurnRate: 0.35,
+                agilityDecay: 0.42,
+                minAgility: 0.18,
+              })
+            );
+          }
+        });
+        AUDIO.playMissileLaunch(missiles.length);
         return { missiles };
       },
     },
@@ -1398,27 +1423,32 @@
         const angle = baseAngle + (i / bulletCount) * Math.PI * 2;
         outputs.bullets.push(new Bullet(center.clone(), Vec2.fromAngle(angle, bulletSpeed), 5, "#ffffff", "boss"));
       }
-      const missileVolley = 4;
-      const vertical = Math.random() < 0.5 ? 1 : -1;
-      const baseVertical = vertical > 0 ? Math.PI / 2 : -Math.PI / 2;
-      const fanSpread = 0.35;
-      const spacing = 32;
-      for (let i = 0; i < missileVolley; i += 1) {
-        const lerp = missileVolley > 1 ? i / (missileVolley - 1) : 0.5;
-        const offsetFactor = lerp - 0.5;
-        const initialDir = Vec2.fromAngle(baseVertical + offsetFactor * fanSpread, 1);
-        const lateral = Vec2.fromAngle(baseVertical + Math.PI / 2, offsetFactor * spacing);
-        const forward = Vec2.fromAngle(baseVertical, 12);
-        const spawnPos = center.clone().add(forward).add(lateral);
-        const turnDelay = 0.2 + Math.random() * 0.15;
-        outputs.missiles.push(
-          new Missile(spawnPos, playerPos, 260 + level * 18, 1.21, "#ffffff", {
-            initialDirection: initialDir,
-            turnDelay,
-          })
-        );
-      }
-      AUDIO.playMissileLaunch(missileVolley);
+      const missilesPerSide = 2;
+      const spacing = 36;
+      const fanSpread = 0.32;
+      const sides = [-1, 1];
+      sides.forEach((orientation) => {
+        const baseAngle = orientation > 0 ? 0 : Math.PI;
+        for (let i = 0; i < missilesPerSide; i += 1) {
+          const lerpValue = missilesPerSide > 1 ? i / (missilesPerSide - 1) : 0.5;
+          const offsetFactor = lerpValue - 0.5;
+          const lateral = Vec2.fromAngle(baseAngle + Math.PI / 2, offsetFactor * spacing);
+          const forward = Vec2.fromAngle(baseAngle, 26 + offsetFactor * 6);
+          const spawnPos = center.clone().add(forward).add(lateral);
+          const initialDir = Vec2.fromAngle(baseAngle + offsetFactor * fanSpread, 1);
+          const turnDelay = 0.1 + Math.random() * 0.12;
+          outputs.missiles.push(
+            new Missile(spawnPos, playerPos, 270 + level * 20, 1.55, "#ffffff", {
+              initialDirection: initialDir,
+              turnDelay,
+              minTurnRate: 0.4,
+              agilityDecay: 0.48,
+              minAgility: 0.2,
+            })
+          );
+        }
+      });
+      AUDIO.playMissileLaunch(outputs.missiles.length);
       const laserDirection = Vec2.fromAngle(baseAngle, 1);
       const { warmup, duration } = resolveTiming("coreLaser");
       const laser = new LaserBeam(center.clone(), laserDirection, 1800, 18, warmup, duration, "rgba(255, 255, 255, 0.92)");
@@ -2503,9 +2533,9 @@
     ctx.save();
     ctx.translate(segment.worldEnd.x, segment.worldEnd.y);
     ctx.rotate(segment.absoluteAngle);
-    const housingWidth = segment.thickness * 1.25;
-    const housingBack = segment.thickness * 1.25;
-    const housingForward = segment.thickness * 0.45;
+    const housingWidth = segment.thickness * 1.15;
+    const housingBack = segment.thickness * 1;
+    const housingForward = segment.thickness * 0.35;
     const recoilOffset = (style.recoil || 8) * recoil;
     ctx.translate(-recoilOffset, 0);
 
@@ -2590,9 +2620,9 @@
 
     switch (style.key) {
       case "spread": {
-        const barrelLength = segment.thickness * 1.9;
-        const barrelWidth = segment.thickness * 0.28;
-        const fanAngle = 0.26;
+        const barrelLength = segment.thickness * 1.35;
+        const barrelWidth = segment.thickness * 0.4;
+        const fanAngle = 0.22;
         muzzleDistance = barrelLength + segment.thickness * 0.3;
         for (let i = 0; i < 3; i += 1) {
           const offset = (i - 1) * fanAngle;
@@ -2623,10 +2653,10 @@
         break;
       }
       case "shatter": {
-        muzzleDistance = segment.thickness * (1.8 + 0.3 * Math.sin(phase));
+        muzzleDistance = segment.thickness * (1.3 + 0.25 * Math.sin(phase));
         for (let i = 0; i < 4; i += 1) {
-          const angle = (i - 1.5) * 0.32 + Math.sin(phase + i) * 0.12;
-          const length = segment.thickness * (1.4 + 0.25 * Math.sin(phase * 1.3 + i));
+          const angle = (i - 1.5) * 0.28 + Math.sin(phase + i) * 0.08;
+          const length = segment.thickness * (1 + 0.18 * Math.sin(phase * 1.3 + i));
           ctx.save();
           ctx.rotate(angle);
           ctx.beginPath();
@@ -2656,9 +2686,9 @@
         break;
       }
       case "missile": {
-        const podSpacing = segment.thickness * 0.48;
-        const podRadius = segment.thickness * 0.23;
-        muzzleDistance = podSpacing * 2.3;
+        const podSpacing = segment.thickness * 0.42;
+        const podRadius = segment.thickness * 0.22;
+        muzzleDistance = podSpacing * 1.5;
         for (let r = 0; r < 2; r += 1) {
           for (let c = 0; c < 2; c += 1) {
             const y = (r - 0.5) * podSpacing;
@@ -2698,9 +2728,9 @@
         ctx.beginPath();
         ctx.arc(-housingBack * 0.3, 0, ringRadius, 0, Math.PI * 2);
         ctx.stroke();
-        const funnelLength = segment.thickness * 2.8;
-        const funnelWidth = segment.thickness * 0.9;
-        muzzleDistance = funnelLength + segment.thickness * 0.3;
+        const funnelLength = segment.thickness * 1.9;
+        const funnelWidth = segment.thickness * 0.75;
+        muzzleDistance = funnelLength + segment.thickness * 0.2;
         ctx.beginPath();
         ctx.moveTo(0, -funnelWidth / 2);
         ctx.lineTo(funnelLength, -funnelWidth * 0.15);
@@ -2724,9 +2754,9 @@
         break;
       }
       case "storm": {
-        const coilLength = segment.thickness * 2.3;
-        const coilRadius = segment.thickness * 0.55;
-        muzzleDistance = coilLength + segment.thickness * 0.4;
+        const coilLength = segment.thickness * 1.6;
+        const coilRadius = segment.thickness * 0.5;
+        muzzleDistance = coilLength + segment.thickness * 0.28;
         const loops = 4;
         ctx.strokeStyle = style.accent;
         ctx.lineWidth = 1.6;
@@ -2762,8 +2792,8 @@
       }
       case "cannon":
       default: {
-        const barrelWidth = segment.thickness * 0.46;
-        const barrelLength = segment.thickness * 2.3;
+        const barrelWidth = segment.thickness * 0.52;
+        const barrelLength = segment.thickness * 1.45;
         drawRoundedRect(ctx, 0, -barrelWidth / 2, barrelLength, barrelWidth, barrelWidth * 0.45);
         ctx.fillStyle = style.barrel;
         ctx.fill();
@@ -2978,7 +3008,7 @@
     constructor(canvasWidth, canvasHeight) {
       this.pos = new Vec2(canvasWidth * 0.5, canvasHeight * 0.8);
       this.vel = new Vec2();
-      this.radius = 14;
+      this.radius = 11.5;
       this.maxSpeed = 640;
       this.thrust = 1250;
       this.frictionBase = 0.96; // per-frame damping tuned for 60 FPS
@@ -2989,9 +3019,12 @@
       this.invulnerable = 0;
       this.fireDirection = new Vec2(0, -1);
       this.hitFlash = 0;
+      this.thrustVisual = 0;
+      this.turretFlash = 0;
     }
     update(dt, input, canvasWidth, canvasHeight) {
       const dir = input.getMovementVector();
+      const thrustInput = input.getThrustInput();
       if (dir.length() > 0) {
         this.vel.add(dir.clone().scale(this.thrust * dt));
       }
@@ -3006,6 +3039,9 @@
       this.reload -= dt;
       this.invulnerable = Math.max(this.invulnerable - dt, 0);
       this.hitFlash = Math.max(this.hitFlash - dt, 0);
+      const targetVisual = Math.min(1, thrustInput.length());
+      this.thrustVisual = lerp(this.thrustVisual, targetVisual, Math.min(1, dt * 12));
+      this.turretFlash = Math.max(this.turretFlash - dt, 0);
     }
     fire() {
       if (this.reload > 0) return null;
@@ -3014,6 +3050,7 @@
       const velocity = dir.clone().scale(750);
       const bulletPos = this.pos.clone().add(dir.clone().scale(this.radius + 6));
       AUDIO.playBulletFire(1);
+      this.turretFlash = 0.18;
       return new Bullet(bulletPos, velocity, 4, "#7cf4ff", "player");
     }
     takeHit() {
@@ -3026,9 +3063,36 @@
       return this.armor <= 0;
     }
     draw(ctx) {
-      const angle = this.vel.length() > 20 ? Math.atan2(this.vel.y, this.vel.x) : 0;
       ctx.save();
       ctx.translate(this.pos.x, this.pos.y);
+      const baseAngle = Math.PI / 2;
+      ctx.save();
+      ctx.rotate(baseAngle);
+      if (this.thrustVisual > 0.05) {
+        const thrusterLength = 12 + this.thrustVisual * 14;
+        const thrusterWidth = 4 + this.thrustVisual * 3;
+        const offsets = [-6.5, 6.5];
+        offsets.forEach((offset) => {
+          ctx.save();
+          ctx.translate(offset, -6);
+          const gradient = ctx.createLinearGradient(0, 0, 0, -thrusterLength);
+          gradient.addColorStop(0, `rgba(255, 210, 150, ${0.65 * this.thrustVisual})`);
+          gradient.addColorStop(0.5, `rgba(255, 140, 80, ${0.45 * this.thrustVisual})`);
+          gradient.addColorStop(1, "rgba(64, 150, 255, 0)");
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.moveTo(-thrusterWidth * 0.35, 0);
+          ctx.lineTo(thrusterWidth * 0.35, 0);
+          ctx.lineTo(0, -thrusterLength);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        });
+      }
+      ctx.restore();
+
+      ctx.save();
+      ctx.rotate(baseAngle);
       if (this.hitFlash > 0) {
         const t = clamp(this.hitFlash / 0.5, 0, 1);
         const radius = this.radius * (1.6 + (1 - t) * 0.8);
@@ -3050,21 +3114,53 @@
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
-      ctx.rotate(angle - Math.PI / 2);
       if (this.invulnerable > 0 && Math.floor(this.invulnerable * 12) % 2 === 0) {
         ctx.globalAlpha = 0.35;
       }
       ctx.strokeStyle = this.invulnerable > 0 ? "#57c9ff" : "#9ff7ff";
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(18, 0);
-      ctx.lineTo(-16, -11);
-      ctx.lineTo(-10, -4);
-      ctx.lineTo(-16, 0);
-      ctx.lineTo(-10, 4);
-      ctx.lineTo(-16, 11);
+      ctx.moveTo(14, 0);
+      ctx.lineTo(-10, -8);
+      ctx.lineTo(-6, -3);
+      ctx.lineTo(-12, 0);
+      ctx.lineTo(-6, 3);
+      ctx.lineTo(-10, 8);
       ctx.closePath();
       ctx.stroke();
+
+      const turretBaseY = -(this.radius + 2);
+      const turretRadius = 4;
+      const turretBarrelLength = 4;
+      ctx.fillStyle = "rgba(120, 170, 210, 0.9)";
+      ctx.strokeStyle = "#e0f4ff";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(0, turretBaseY, turretRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      drawRoundedRect(ctx, -1.6, turretBaseY - turretBarrelLength, 3.2, turretBarrelLength, 1.5);
+      ctx.fillStyle = "rgba(200, 240, 255, 0.95)";
+      ctx.fill();
+      ctx.stroke();
+      if (this.turretFlash > 0) {
+        const flashStrength = this.turretFlash / 0.18;
+        const flashLength = 8 * flashStrength;
+        ctx.globalAlpha = 0.7 * flashStrength;
+        const flashY = turretBaseY - turretBarrelLength;
+        const gradient = ctx.createLinearGradient(0, flashY, 0, flashY - flashLength);
+        gradient.addColorStop(0, "rgba(255, 230, 190, 0.9)");
+        gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.moveTo(-3.5, flashY);
+        ctx.lineTo(0, flashY - flashLength);
+        ctx.lineTo(3.5, flashY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.restore();
       ctx.restore();
     }
   }
@@ -3461,26 +3557,26 @@
         this.player.draw(ctx);
       }
 
-      this.drawPlayerHealth(width);
+      this.drawPlayerHealth(width, height);
       if (this.gameOver) {
         this.drawGameOver(width, height);
       }
     }
-    drawPlayerHealth(width) {
+    drawPlayerHealth(width, height) {
       const segments = this.player.maxArmor || 1;
       const remaining = Math.max(0, Math.round(this.player.armor));
       const barWidth = Math.min(width - 120, 460);
       const barHeight = 18;
       const gap = 6;
       ctx.save();
-      ctx.translate((width - barWidth) / 2, 32);
+      ctx.translate((width - barWidth) / 2, height - (barHeight + 24));
       ctx.lineWidth = 2;
       for (let i = 0; i < segments; i += 1) {
         const x = i * ((barWidth - (segments - 1) * gap) / segments + gap);
         const segmentWidth = (barWidth - (segments - 1) * gap) / segments;
         ctx.strokeStyle = "rgba(30, 80, 50, 0.9)";
         ctx.fillStyle = i < remaining ? "rgba(88, 215, 120, 0.85)" : "rgba(40, 80, 50, 0.35)";
-        drawRoundedRect(ctx, x, -barHeight / 2, segmentWidth, barHeight, 4);
+        drawRoundedRect(ctx, x, 0, segmentWidth, barHeight, 4);
         ctx.fill();
         ctx.stroke();
       }
