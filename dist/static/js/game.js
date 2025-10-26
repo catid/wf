@@ -129,9 +129,10 @@
       this.noiseBuffer = null;
       this.enabled = false;
       this.warningClip = null;
-      this.explosionClip = null;
       this.explosionTrack = null;
-      this.explosionPrimed = false;
+      this.explosionBuffer = null;
+      this.explosionBufferPromise = null;
+      this.explosionElement = null;
       this.readyCallbacks = [];
     }
     unlock() {
@@ -148,9 +149,7 @@
         this.master.connect(this.ctx.destination);
         this.noiseBuffer = this.buildNoiseBuffer();
         this.enabled = true;
-        if (this.explosionTrack) {
-          this.primeExplosionClip();
-        }
+        this.prepareExplosionBuffer();
         this.flushReadyCallbacks();
       } catch (error) {
         console.warn("Audio init failed:", error);
@@ -426,52 +425,61 @@
     }
     setExplosionTrack(url) {
       this.explosionTrack = url;
-      if (this.enabled) {
-        this.primeExplosionClip();
-      }
+      this.prepareExplosionBuffer();
     }
-    primeExplosionClip() {
-      if (!this.explosionTrack || typeof Audio === "undefined") return;
-      if (this.explosionPrimed) return;
-      if (!this.explosionClip) {
-        this.explosionClip = new Audio(this.explosionTrack);
-        this.explosionClip.preload = "auto";
-        this.explosionClip.loop = false;
-        this.explosionClip.volume = 0.92;
+    prepareExplosionBuffer() {
+      if (!this.enabled || !this.ctx || !this.explosionTrack) return;
+      if (this.explosionBuffer || this.explosionBufferPromise) return;
+      this.explosionBufferPromise = fetch(this.explosionTrack)
+        .then((response) => response.arrayBuffer())
+        .then((data) =>
+          new Promise((resolve, reject) => {
+            this.ctx.decodeAudioData(data, resolve, reject);
+          })
+        )
+        .then((buffer) => {
+          this.explosionBuffer = buffer;
+          this.explosionBufferPromise = null;
+        })
+        .catch((error) => {
+          console.warn("Explosion buffer load failed:", error);
+          this.explosionBufferPromise = null;
+        });
+    }
+    triggerExplosionBuffer() {
+      if (!this.ctx || !this.master || !this.explosionBuffer) return;
+      const source = this.ctx.createBufferSource();
+      source.buffer = this.explosionBuffer;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0.92;
+      source.connect(gain).connect(this.master);
+      source.start();
+    }
+    ensureExplosionElement() {
+      if (typeof Audio === "undefined" || !this.explosionTrack) return null;
+      if (!this.explosionElement) {
+        this.explosionElement = new Audio(this.explosionTrack);
+        this.explosionElement.preload = "auto";
+        this.explosionElement.loop = false;
+        this.explosionElement.volume = 0.92;
       }
-      const previousVolume = this.explosionClip.volume;
-      this.explosionClip.muted = true;
-      this.explosionClip.volume = 0;
-      const seed = this.explosionClip.play();
-      const finishPrime = () => {
-        try {
-          this.explosionClip.pause();
-          this.explosionClip.currentTime = 0;
-        } catch (error) {}
-        this.explosionClip.muted = false;
-        this.explosionClip.volume = previousVolume;
-        this.explosionPrimed = true;
-      };
-      if (seed && typeof seed.finally === "function") {
-        seed.finally(finishPrime).catch(() => finishPrime());
-      } else {
-        finishPrime();
-      }
+      return this.explosionElement;
     }
     playExplosionClip() {
-      if (typeof Audio === "undefined") return;
-      if (!this.explosionClip && this.explosionTrack) {
-        this.primeExplosionClip();
+      if (this.explosionBuffer) {
+        this.triggerExplosionBuffer();
+        return;
       }
-      const clip = this.explosionClip;
-      if (!clip) return;
+      if (!this.explosionBufferPromise) {
+        this.prepareExplosionBuffer();
+      }
+      const fallback = this.ensureExplosionElement();
+      if (!fallback) return;
       try {
-        clip.pause();
-        clip.currentTime = 0;
-        clip.play().catch(() => {});
-      } catch (error) {
-        // fall back silently; procedural explosion already active
-      }
+        fallback.pause();
+        fallback.currentTime = 0;
+        fallback.play().catch(() => {});
+      } catch (error) {}
     }
     playPlayerDamage() {
       this.oscBurst(
@@ -644,10 +652,18 @@
       { passive: options.passive ?? true }
     );
   };
-  ["pointerdown", "mousedown", "touchstart", "keydown"].forEach((evt) => {
-    registerAudioGesture(window, evt, { passive: evt === "touchstart" ? false : true });
-    registerAudioGesture(document, evt, { passive: evt === "touchstart" ? false : true });
-    registerAudioGesture(canvas, evt, { passive: evt === "touchstart" ? false : true });
+  const gestureEvents = [
+    { type: "pointerdown", passive: true },
+    { type: "pointermove", passive: true },
+    { type: "mousedown", passive: true },
+    { type: "touchstart", passive: false },
+    { type: "touchmove", passive: false },
+    { type: "keydown", passive: true },
+  ];
+  gestureEvents.forEach(({ type, passive }) => {
+    registerAudioGesture(window, type, { passive });
+    registerAudioGesture(document, type, { passive });
+    registerAudioGesture(canvas, type, { passive });
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && audioUnlockTriggered) {
@@ -3651,6 +3667,9 @@
       }
     }
     update(dt) {
+      if (pendingMusicStart) {
+        MUSIC.resumeIfSuspended();
+      }
       const width = canvas.width / DPR;
       const height = canvas.height / DPR;
       this.updatePlayerDeath(dt);
