@@ -501,21 +501,24 @@
       audio.addEventListener("error", () => {
         this.advance();
       });
+      this.audio = audio;
       const playAttempt = audio.play();
       if (playAttempt && typeof playAttempt.then === "function") {
         playAttempt
           .then(() => {
             pendingMusicStart = false;
-            this.audio = audio;
           })
           .catch(() => {
+            try {
+              audio.pause();
+              audio.currentTime = 0;
+            } catch (error) {}
             this.started = false;
             this.audio = null;
             pendingMusicStart = true;
           });
       } else {
         pendingMusicStart = false;
-        this.audio = audio;
       }
     }
     advance() {
