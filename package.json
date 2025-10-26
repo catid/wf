@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "python3 export_static.py",
-    "deploy": "npm run build && npx wrangler pages deploy dist",
+    "deploy": "node scripts/run-wrangler-pages-deploy.js",
     "preview": "npm run build && npx wrangler pages dev dist --local"
   },
   "devDependencies": {
