@@ -1,0 +1,12 @@
+{
+  "name": "wf",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static Warning Forever tribute; dist/ already contains the production bundle.",
+  "scripts": {
+    "build": "echo \"dist/ already contains the production bundle\"",
+    "dev": "python3 -m http.server --directory dist 8000",
+    "serve": "python3 -m http.server --directory dist 8000",
+    "deploy": "wrangler deploy"
+  }
+}
