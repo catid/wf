@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Flask, render_template
+from flask import Flask, send_from_directory
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -10,13 +10,13 @@ BASE_DIR = Path(__file__).resolve().parent
 app = Flask(
     __name__,
     static_folder=str(BASE_DIR / "static"),
-    template_folder=str(BASE_DIR / "templates"),
+    static_url_path="/static",
 )
 
 
 @app.route("/")
 def index() -> str:
-    return render_template("index.html")
+    return send_from_directory(BASE_DIR, "index.html")
 
 
 def main() -> None:

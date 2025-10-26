@@ -376,10 +376,10 @@
   }
 
   const MUSIC_TRACKS = [
-    "/static/audio/Endless Inferno.mp3",
-    "/static/audio/Galactic Inferno.mp3",
-    "/static/audio/Starfire Collision.mp3",
-    "/static/audio/Void Barrage.mp3",
+    "static/audio/Endless Inferno.mp3",
+    "static/audio/Galactic Inferno.mp3",
+    "static/audio/Starfire Collision.mp3",
+    "static/audio/Void Barrage.mp3",
   ];
 
   class MusicPlayer {

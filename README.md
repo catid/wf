@@ -1,39 +1,22 @@
 # Warning Forever Tribute
 
-A browser-based homage to *Warning Forever*, featuring fast-paced duels against an evolving boss ship rendered with vector-inspired effects. The project ships with a lightweight Python web server for easy local playtesting.
+A browser-based homage to *Warning Forever*, featuring fast-paced duels against an evolving boss ship rendered with vector-inspired effects.
 
-## Requirements
+## Static bundle
 
-- [uv](https://docs.astral.sh/uv/) 0.4 or newer
-- Python 3.10+ (uv will download a compatible interpreter if one is not available)
+The repo now ships exactly like it plays in production: an `index.html` file next to the `static/` directory that holds every asset (CSS, JS, audio). Drop those files on any static host or even double-click `index.html` to run it locally—no build step, npm script, or Cloudflare Pages pipeline required.
 
-## Quickstart
-
-```bash
-# Create (or reuse) the local virtual environment
-uv venv
-
-# Activate it for the current shell session
-source .venv/bin/activate
-
-# Install server dependencies into the uv-managed venv
-uv pip install -r requirements.txt
-
-# Launch the development server
-uv run python server.py
-```
-
-Once the server starts, open http://127.0.0.1:8000 to play. The game updates automatically when you change the JavaScript or CSS—just refresh the browser.
-
-### Makefile shortcut
-
-If you prefer, the included Makefile mirrors the commands above:
+If you prefer serving it via a simple HTTP server (recommended so audio works consistently across browsers), use whatever tool you like:
 
 ```bash
-make run
+# From the repo root
+python -m http.server 8000
+# …or use the included Flask helper for live reload-ish tweaks
+pip install -r requirements.txt
+python server.py
 ```
 
-The `run` target ensures the virtual environment exists, installs dependencies with `uv pip`, and then executes the server via `uv run`.
+`server.py` is only there if you want Flask’s auto-reloader while poking at the JavaScript; any HTTP server will do.
 
 ## Controls & Mechanics
 
@@ -46,25 +29,12 @@ The `run` target ensures the virtual environment exists, installs dependencies w
 
 ## Project Structure
 
-- `server.py` – Flask app that serves the static assets.
+- `index.html` – Game shell already wired to the assets.
 - `static/js/game.js` – Canvas-based game logic, player controls, boss AI, and rendering.
 - `static/css/style.css` – Retro vector look and HUD styling.
-- `templates/index.html` – Game shell and HUD layout.
+- `static/audio/` – Music loops that keep the duels tense.
 
 ## Notes
 
-- The Flask server runs with debug mode enabled for rapid iteration; avoid deploying it without adjustments.
-- To reset your environment, deactivate the shell, remove `.venv`, and re-run the setup commands (or `make clean && make run`).
-
-## Cloudflare Pages
-
-The repo now ships with a `wrangler.toml` and npm scripts so you can deploy entirely through the Cloudflare CLI (`npx wrangler`). Pages serves the pre-rendered static bundle that lives in `dist/`.
-
-1. Install the Python bits (`uv pip install -r requirements.txt` or `pip install -r requirements.txt`).
-2. Install the CLI tooling once: `npm install` (this pulls in Wrangler as a devDependency).
-3. Build the static bundle with `npm run build` (runs `python3 export_static.py` under the hood).
-4. Deploy with `npm run deploy`. This script only prints a placeholder message so the Pages UI has a required “deploy command”, and then the platform uploads `dist/` automatically.
-
-To preview the static output locally with Cloudflare’s emulator, run `npm run preview`, which rebuilds `dist/` and launches `npx wrangler pages dev dist --local`.
-
-If you need to push a build yourself (outside of Cloudflare Pages), run `npx wrangler pages deploy dist --project-name warning-forever` after authenticating with `npx wrangler login` or by exporting the appropriate `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`.
+- The Flask server (`server.py`) runs with debug mode enabled purely for local iteration.
+- To reset your environment, deactivate the shell, remove `.venv`, reinstall `pip install -r requirements.txt`, and rerun `python server.py`.

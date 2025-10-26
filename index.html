@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#03050d" />
     <meta name="format-detection" content="telephone=no" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <link rel="stylesheet" href="static/css/style.css" />
   </head>
   <body>
     <div id="game-container">
@@ -21,6 +21,6 @@
         <div id="message"></div>
       </div>
     </div>
-    <script src="{{ url_for('static', filename='js/game.js') }}"></script>
+    <script src="static/js/game.js" defer></script>
   </body>
 </html>
