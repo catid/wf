@@ -2,6 +2,18 @@
   const canvas = document.getElementById("gameCanvas");
   const ctx = canvas.getContext("2d");
 
+  const setAppHeight = () => {
+    const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    if (height > 0) {
+      document.documentElement.style.setProperty("--app-height", `${height}px`);
+    }
+  };
+  setAppHeight();
+  window.addEventListener("resize", setAppHeight);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", setAppHeight);
+  }
+
   const hudScore = document.getElementById("score");
   const hudMessage = document.getElementById("message");
   const startOverlay = document.getElementById("start-overlay");
