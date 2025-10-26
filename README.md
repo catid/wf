@@ -24,9 +24,10 @@ Some hosts—Cloudflare Pages included—expect a “build command” even when 
 
 ```bash
 npm run build
+npm run deploy
 ```
 
-The script simply copies `index.html` and `static/` into `dist/`, which you can point your Pages project at. There are no Node dependencies, bundlers, or Wrangler configs involved—just a convenience shim so CI/CD platforms see the output they expect.
+The build step copies `index.html` and `static/` into `dist/`, which you can point your Pages project at. The deploy script only echoes a status line so providers that insist on both commands remain happy. There are no Node dependencies, bundlers, or Wrangler configs involved—just a convenience shim so CI/CD platforms see the output they expect.
 
 ## Controls & Mechanics
 
