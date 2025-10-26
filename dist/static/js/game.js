@@ -130,6 +130,8 @@
       this.enabled = false;
       this.warningClip = null;
       this.explosionClip = null;
+      this.explosionTrack = null;
+      this.explosionPrimed = false;
       this.readyCallbacks = [];
     }
     unlock() {
@@ -146,6 +148,9 @@
         this.master.connect(this.ctx.destination);
         this.noiseBuffer = this.buildNoiseBuffer();
         this.enabled = true;
+        if (this.explosionTrack) {
+          this.primeExplosionClip();
+        }
         this.flushReadyCallbacks();
       } catch (error) {
         console.warn("Audio init failed:", error);
@@ -419,33 +424,50 @@
         offset: 0.8,
       });
     }
+    setExplosionTrack(url) {
+      this.explosionTrack = url;
+      if (this.enabled) {
+        this.primeExplosionClip();
+      }
+    }
+    primeExplosionClip() {
+      if (!this.explosionTrack || typeof Audio === "undefined") return;
+      if (this.explosionPrimed) return;
+      if (!this.explosionClip) {
+        this.explosionClip = new Audio(this.explosionTrack);
+        this.explosionClip.preload = "auto";
+        this.explosionClip.loop = false;
+        this.explosionClip.volume = 0.92;
+      }
+      this.explosionClip.muted = true;
+      const seed = this.explosionClip.play();
+      const finishPrime = () => {
+        try {
+          this.explosionClip.pause();
+          this.explosionClip.currentTime = 0;
+        } catch (error) {}
+        this.explosionClip.muted = false;
+        this.explosionPrimed = true;
+      };
+      if (seed && typeof seed.finally === "function") {
+        seed.finally(finishPrime).catch(() => finishPrime());
+      } else {
+        finishPrime();
+      }
+    }
     playExplosionClip() {
       if (typeof Audio === "undefined") return;
-      const ensureClip = () => {
-        if (!this.explosionClip) {
-          this.explosionClip = new Audio(EXPLOSION_TRACK);
-          this.explosionClip.preload = "auto";
-          this.explosionClip.loop = false;
-          this.explosionClip.volume = 0.92;
-        }
-        return this.explosionClip;
-      };
+      if (!this.explosionClip && this.explosionTrack) {
+        this.primeExplosionClip();
+      }
+      const clip = this.explosionClip;
+      if (!clip) return;
       try {
-        const clip = ensureClip();
         clip.pause();
         clip.currentTime = 0;
-        const playAttempt = clip.play();
-        if (playAttempt && typeof playAttempt.catch === "function") {
-          playAttempt.catch(() => {});
-        }
+        clip.play().catch(() => {});
       } catch (error) {
-        try {
-          const fallback = new Audio(EXPLOSION_TRACK);
-          fallback.volume = 0.9;
-          fallback.play().catch(() => {});
-        } catch (secondaryError) {
-          // Swallow; procedural explosion will still play.
-        }
+        // fall back silently; procedural explosion already active
       }
     }
     playPlayerDamage() {
@@ -587,6 +609,7 @@
   }
 
   const AUDIO = new SFXEngine();
+  AUDIO.setExplosionTrack(EXPLOSION_TRACK);
   window.__WF_AUDIO__ = AUDIO;
   const MUSIC = new MusicPlayer(MUSIC_TRACKS);
   let audioUnlockTriggered = false;

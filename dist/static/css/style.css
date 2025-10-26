@@ -12,6 +12,8 @@ body {
     align-items: center;
     justify-content: center;
     min-height: 100vh;
+    min-height: 100svh;
+    min-height: 100dvh;
     padding: clamp(8px, 3vw, 32px);
     box-sizing: border-box;
     -webkit-user-select: none;
