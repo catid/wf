@@ -6,17 +6,18 @@ from flask import Flask, send_from_directory
 
 
 BASE_DIR = Path(__file__).resolve().parent
+DIST_DIR = BASE_DIR / "dist"
 
 app = Flask(
     __name__,
-    static_folder=str(BASE_DIR / "static"),
+    static_folder=str(DIST_DIR / "static"),
     static_url_path="/static",
 )
 
 
 @app.route("/")
 def index() -> str:
-    return send_from_directory(BASE_DIR, "index.html")
+    return send_from_directory(DIST_DIR, "index.html")
 
 
 def main() -> None:

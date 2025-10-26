@@ -4,30 +4,30 @@ A browser-based homage to *Warning Forever*, featuring fast-paced duels against 
 
 ## Static bundle
 
-The repo now ships exactly like it plays in production: an `index.html` file next to the `static/` directory that holds every asset (CSS, JS, audio). Drop those files on any static host or even double-click `index.html` to run it locally—no build step, npm script, or Cloudflare Pages pipeline required.
+Everything now lives exactly where the CDN expects it: the checked-in `dist/` directory already contains `index.html` plus every asset under `dist/static/`. There is no export step, npm script, or bundler—what you see in git is what gets deployed.
 
-If you prefer serving it via a simple HTTP server (recommended so audio works consistently across browsers), use whatever tool you like:
+To poke at the game locally:
 
 ```bash
-# From the repo root
-python -m http.server 8000
-# …or use the included Flask helper for live reload-ish tweaks
+# Serve straight from dist/ (recommended so audio works)
+python -m http.server --directory dist 8000
+
+# …or use the included Flask helper for a tiny dev server
 pip install -r requirements.txt
 python server.py
 ```
 
-`server.py` is only there if you want Flask’s auto-reloader while poking at the JavaScript; any HTTP server will do.
+`server.py` simply serves `dist/index.html` with Flask’s auto-reloader; any HTTP server pointed at `dist/` works.
 
-## Cloudflare Pages (or other hosts that demand a build step)
+## Cloudflare deployment
 
-Some hosts—Cloudflare Pages included—expect a “build command” even when you just want to upload pre-made assets. To satisfy that requirement, the repo includes a tiny `package.json` with a single script:
+Cloudflare’s CI runner now just needs to push the ready-made bundle. The repository includes a minimal Worker (`worker.js`) plus `wrangler.toml`, so the Pages job can run:
 
 ```bash
-npm run build
-npm run deploy
+npx wrangler deploy
 ```
 
-The build step copies `index.html` and `static/` into `dist/`, which you can point your Pages project at. The deploy script only echoes a status line so providers that insist on both commands remain happy. There are no Node dependencies, bundlers, or Wrangler configs involved—just a convenience shim so CI/CD platforms see the output they expect.
+Wrangler uploads the `dist/` assets (declared in `wrangler.toml`) and binds them to the Worker, which in turn serves the static files and falls back to `index.html` for navigation routes. If you run this command outside Cloudflare’s build environment, make sure the usual credentials are present (`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` or `wrangler login`).
 
 ## Controls & Mechanics
 
@@ -40,10 +40,12 @@ The build step copies `index.html` and `static/` into `dist/`, which you can poi
 
 ## Project Structure
 
-- `index.html` – Game shell already wired to the assets.
-- `static/js/game.js` – Canvas-based game logic, player controls, boss AI, and rendering.
-- `static/css/style.css` – Retro vector look and HUD styling.
-- `static/audio/` – Music loops that keep the duels tense.
+- `dist/index.html` – Game shell already wired to the assets.
+- `dist/static/js/game.js` – Canvas-based game logic, player controls, boss AI, and rendering.
+- `dist/static/css/style.css` – Retro vector look and HUD styling.
+- `dist/static/audio/` – Music loops that keep the duels tense.
+- `worker.js` – Minimal Worker that proxies requests to the bundled assets.
+- `wrangler.toml` – Config binding `dist/` to Wrangler’s asset uploader so `npx wrangler deploy` “just works”.
 
 ## Notes
 
