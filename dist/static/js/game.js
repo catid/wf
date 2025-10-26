@@ -4,6 +4,8 @@
 
   const hudScore = document.getElementById("score");
   const hudMessage = document.getElementById("message");
+  const startOverlay = document.getElementById("start-overlay");
+  const startButton = document.getElementById("start-button");
 
   const DPR = window.devicePixelRatio || 1;
   const DEFAULT_TIMINGS = {
@@ -465,6 +467,7 @@
   ];
   const WARNING_TRACK = "static/audio/klaxon.mp3";
   const EXPLOSION_TRACK = "static/audio/explosion.mp3";
+  let pendingMusicStart = false;
 
   class MusicPlayer {
     constructor(tracks) {
@@ -477,6 +480,7 @@
     }
     start() {
       if (this.started || this.tracks.length === 0) return;
+      pendingMusicStart = false;
       this.started = true;
       this.playCurrent();
     }
@@ -497,15 +501,22 @@
       audio.addEventListener("error", () => {
         this.advance();
       });
-      audio
-        .play()
-        .then(() => {
-          this.audio = audio;
-        })
-        .catch(() => {
-          this.started = false;
-        });
-      this.audio = audio;
+      const playAttempt = audio.play();
+      if (playAttempt && typeof playAttempt.then === "function") {
+        playAttempt
+          .then(() => {
+            pendingMusicStart = false;
+            this.audio = audio;
+          })
+          .catch(() => {
+            this.started = false;
+            this.audio = null;
+            pendingMusicStart = true;
+          });
+      } else {
+        pendingMusicStart = false;
+        this.audio = audio;
+      }
     }
     advance() {
       this.index = (this.index + 1) % this.tracks.length;
@@ -534,11 +545,41 @@
         this.start();
       }, wait);
     }
-    queueNext(delay = 0) {
+    playFromCurrentIndex(delay = 0) {
       if (this.tracks.length === 0) return;
-      this.index = (this.index + 1) % this.tracks.length;
       this.stop();
       this.scheduleStart(delay);
+    }
+    playRandomLevelTrack(delay = 0) {
+      if (this.tracks.length === 0) return;
+      this.index = Math.floor(Math.random() * this.tracks.length);
+      this.playFromCurrentIndex(delay);
+    }
+    playNextLevelTrack(delay = 0) {
+      if (this.tracks.length === 0) return;
+      if (this.index < 0 || Number.isNaN(this.index)) {
+        this.index = 0;
+      } else {
+        this.index = (this.index + 1) % this.tracks.length;
+      }
+      this.playFromCurrentIndex(delay);
+    }
+    resumeIfSuspended() {
+      if (this.tracks.length === 0) return;
+      if (!this.started || pendingMusicStart) {
+        this.start();
+        return;
+      }
+      if (this.audio && this.audio.paused) {
+        const attempt = this.audio.play();
+        if (attempt && typeof attempt.catch === "function") {
+          attempt.catch(() => {
+            this.started = false;
+            this.audio = null;
+            pendingMusicStart = true;
+          });
+        }
+      }
     }
   }
 
@@ -546,10 +587,15 @@
   window.__WF_AUDIO__ = AUDIO;
   const MUSIC = new MusicPlayer(MUSIC_TRACKS);
   let audioUnlockTriggered = false;
+  let initialStartReleased = false;
   const engageAudioSystems = () => {
-    if (audioUnlockTriggered) return;
-    audioUnlockTriggered = true;
-    AUDIO.unlock();
+    if (!audioUnlockTriggered) {
+      audioUnlockTriggered = true;
+      AUDIO.unlock();
+    } else {
+      AUDIO.unlock();
+    }
+    MUSIC.resumeIfSuspended();
   };
   const registerAudioGesture = (target, event, options = {}) => {
     if (!target) return;
@@ -561,13 +607,19 @@
           ev.preventDefault();
         }
       },
-      { once: true, passive: options.passive ?? true }
+      { passive: options.passive ?? true }
     );
   };
   ["pointerdown", "mousedown", "touchstart", "keydown"].forEach((evt) => {
     registerAudioGesture(window, evt, { passive: evt === "touchstart" ? false : true });
     registerAudioGesture(document, evt, { passive: evt === "touchstart" ? false : true });
     registerAudioGesture(canvas, evt, { passive: evt === "touchstart" ? false : true });
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && audioUnlockTriggered) {
+      AUDIO.unlock();
+      MUSIC.resumeIfSuspended();
+    }
   });
 
   function lerpAngle(current, target, maxStep) {
@@ -3513,6 +3565,7 @@
       this.enemyMissiles = [];
       this.enemyLasers = [];
       this.playerDeath = null;
+      this.awaitingInitialStart = true;
       this.reset();
     }
     reset() {
@@ -3537,7 +3590,10 @@
       this.messageTimer = 0;
       hudMessage.textContent = "";
       this.updateHUD();
-      this.beginLevel(false);
+      this.awaitingInitialStart = !initialStartReleased;
+      if (!this.awaitingInitialStart) {
+        this.beginLevel(false);
+      }
     }
     updateHUD() {
       hudScore.textContent = `Score: ${this.score}`;
@@ -3549,9 +3605,15 @@
       }
       AUDIO.playWarning();
       if (advanceTrack) {
-        MUSIC.queueNext(0);
+        MUSIC.playNextLevelTrack(0);
       } else {
-        MUSIC.start();
+        MUSIC.playRandomLevelTrack(0);
+      }
+    }
+    releaseInitialStart() {
+      if (this.awaitingInitialStart) {
+        this.awaitingInitialStart = false;
+        this.beginLevel(false);
       }
     }
     update(dt) {
@@ -3944,6 +4006,26 @@
 
   const input = new Input(canvas);
   const game = new Game(input);
+
+  const dismissStartOverlay = () => {
+    if (initialStartReleased) return;
+    initialStartReleased = true;
+    if (startOverlay) {
+      startOverlay.classList.add("start-overlay--hidden");
+    }
+    engageAudioSystems();
+    game.releaseInitialStart();
+  };
+
+  if (startButton) {
+    startButton.addEventListener("click", dismissStartOverlay);
+    startButton.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        dismissStartOverlay();
+      }
+    });
+  }
   let lastTime = performance.now();
 
   function loop(now) {
