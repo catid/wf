@@ -55,3 +55,15 @@ The `run` target ensures the virtual environment exists, installs dependencies w
 
 - The Flask server runs with debug mode enabled for rapid iteration; avoid deploying it without adjustments.
 - To reset your environment, deactivate the shell, remove `.venv`, and re-run the setup commands (or `make clean && make run`).
+
+## Deploying to Cloudflare Pages
+
+Cloudflare Pages only needs a static bundle (HTML plus `static/`). The `export_static.py` helper renders the Flask template and copies the assets into `dist/`.
+
+1. Install dependencies (`uv pip install -r requirements.txt` or `pip install -r requirements.txt`).
+2. Run `python export_static.py` (or `uv run python export_static.py`). You should end up with `dist/index.html` and a `dist/static/` directory.
+3. In your Cloudflare Pages project:
+   - Set **Build command** to `pip install -r requirements.txt && python export_static.py` (swap in `uv` if you prefer).
+   - Set **Build output directory** to `dist`.
+
+Cloudflare will now rebuild the static bundle on each deployment and serve the game directly from the generated assets—no Flask server required.
