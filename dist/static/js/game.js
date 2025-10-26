@@ -177,6 +177,9 @@
         this.readyCallbacks.push(callback);
       }
     }
+    getMasterNode() {
+      return this.master;
+    }
     flushReadyCallbacks() {
       if (!this.enabled) return;
       const callbacks = this.readyCallbacks.splice(0);
@@ -512,121 +515,170 @@
   ];
   const WARNING_TRACK = "static/audio/klaxon.mp3";
   const EXPLOSION_TRACK = "static/audio/explosion.mp3";
-  let pendingMusicStart = false;
 
   class MusicPlayer {
     constructor(tracks) {
       this.tracks = tracks.slice();
-      this.audio = null;
       this.index = this.tracks.length > 0 ? Math.floor(Math.random() * this.tracks.length) : 0;
-      this.started = false;
       this.volume = 0.4;
-      this.resumeTimer = null;
-    }
-    start() {
-      if (this.started || this.tracks.length === 0) return;
-      pendingMusicStart = false;
-      this.started = true;
-      this.playCurrent();
-    }
-    playCurrent() {
-      if (!this.started || this.tracks.length === 0) return;
-      if (this.audio) {
-        this.audio.pause();
-        this.audio = null;
-      }
-      const src = this.tracks[this.index % this.tracks.length];
-      const audio = new Audio(src);
-      audio.loop = false;
-      audio.preload = "auto";
-      audio.volume = this.volume;
-      audio.addEventListener("ended", () => {
-        this.advance();
-      });
-      audio.addEventListener("error", () => {
-        this.advance();
-      });
-      this.audio = audio;
-      const playAttempt = audio.play();
-      if (playAttempt && typeof playAttempt.then === "function") {
-        playAttempt
-          .then(() => {
-            pendingMusicStart = false;
-          })
-          .catch(() => {
-            try {
-              audio.pause();
-              audio.currentTime = 0;
-            } catch (error) {}
-            this.started = false;
-            this.audio = null;
-            pendingMusicStart = true;
-          });
-      } else {
-        pendingMusicStart = false;
-      }
-    }
-    advance() {
-      this.index = (this.index + 1) % this.tracks.length;
-      this.playCurrent();
-    }
-    stop() {
-      if (this.resumeTimer) {
-        clearTimeout(this.resumeTimer);
-        this.resumeTimer = null;
-      }
-      if (this.audio) {
-        this.audio.pause();
-        this.audio.currentTime = 0;
-        this.audio = null;
-      }
+      this.ctx = null;
+      this.bus = null;
+      this.gain = null;
+      this.source = null;
       this.started = false;
+      this.bufferCache = new Map();
+      this.bufferLoads = new Map();
+      this.playToken = 0;
+      this.awaitingContext = false;
     }
-    scheduleStart(delay = 0) {
-      if (this.resumeTimer) {
-        clearTimeout(this.resumeTimer);
-        this.resumeTimer = null;
+    attachAudioBus(busNode) {
+      if (!busNode || this.bus === busNode) return;
+      this.bus = busNode;
+      this.ctx = busNode.context || this.ctx;
+      if (this.ctx && !this.gain) {
+        this.gain = this.ctx.createGain();
+        this.gain.gain.value = 0;
+        this.gain.connect(this.bus);
+        if (this.awaitingContext && this.started) {
+          this.awaitingContext = false;
+          this.startPlayback();
+        }
       }
-      const wait = Math.max(0, delay);
-      this.resumeTimer = setTimeout(() => {
-        this.resumeTimer = null;
-        this.start();
-      }, wait);
     }
-    playFromCurrentIndex(delay = 0) {
-      if (this.tracks.length === 0) return;
-      this.stop();
-      this.scheduleStart(delay);
+    ensureContext() {
+      if (this.gain && this.ctx) return true;
+      if (this.bus && !this.ctx) {
+        this.ctx = this.bus.context || null;
+      }
+      if (this.ctx && !this.gain) {
+        this.gain = this.ctx.createGain();
+        this.gain.gain.value = 0;
+        this.gain.connect(this.bus || this.ctx.destination);
+      }
+      if (!this.ctx || !this.gain) {
+        this.awaitingContext = true;
+        return false;
+      }
+      return true;
     }
-    playRandomLevelTrack(delay = 0) {
+    loadBuffer(index) {
+      if (!this.ctx || !this.tracks[index]) {
+        return Promise.reject(new Error("Audio context not ready"));
+      }
+      if (this.bufferCache.has(index)) {
+        return Promise.resolve(this.bufferCache.get(index));
+      }
+      if (this.bufferLoads.has(index)) {
+        return this.bufferLoads.get(index);
+      }
+      const src = this.tracks[index];
+      const promise = fetch(src)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Failed to load track: ${src}`);
+          }
+          return response.arrayBuffer();
+        })
+        .then(
+          (data) =>
+            new Promise((resolve, reject) => {
+              this.ctx.decodeAudioData(data, resolve, reject);
+            })
+        )
+        .then((buffer) => {
+          this.bufferCache.set(index, buffer);
+          this.bufferLoads.delete(index);
+          return buffer;
+        })
+        .catch((error) => {
+          this.bufferLoads.delete(index);
+          throw error;
+        });
+      this.bufferLoads.set(index, promise);
+      return promise;
+    }
+    playRandomLevelTrack() {
       if (this.tracks.length === 0) return;
       this.index = Math.floor(Math.random() * this.tracks.length);
-      this.playFromCurrentIndex(delay);
+      this.started = true;
+      this.startPlayback();
     }
-    playNextLevelTrack(delay = 0) {
+    playNextLevelTrack() {
       if (this.tracks.length === 0) return;
       if (this.index < 0 || Number.isNaN(this.index)) {
         this.index = 0;
       } else {
         this.index = (this.index + 1) % this.tracks.length;
       }
-      this.playFromCurrentIndex(delay);
+      this.started = true;
+      this.startPlayback();
     }
-    resumeIfSuspended() {
+    startPlayback() {
+      if (!this.started || this.tracks.length === 0) return;
+      if (!this.ensureContext()) return;
+      const trackIndex = ((this.index % this.tracks.length) + this.tracks.length) % this.tracks.length;
+      const token = ++this.playToken;
+      this.stopSource();
+      this.loadBuffer(trackIndex)
+        .then((buffer) => {
+          if (!this.started || this.playToken !== token) return;
+          this.startSource(buffer);
+        })
+        .catch((error) => {
+          console.warn("Music playback failed:", error);
+        });
+    }
+    startSource(buffer) {
+      if (!this.ctx || !this.gain) return;
+      const now = this.ctx.currentTime;
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this.gain);
+      source.onended = () => {
+        if (this.source === source) {
+          this.source = null;
+          if (this.started) {
+            this.advance();
+          }
+        }
+      };
+      this.gain.gain.cancelScheduledValues(now);
+      this.gain.gain.setValueAtTime(0, now);
+      this.gain.gain.linearRampToValueAtTime(this.volume, now + 0.6);
+      source.start();
+      this.source = source;
+    }
+    advance() {
       if (this.tracks.length === 0) return;
-      if (!this.started || pendingMusicStart) {
-        this.start();
+      this.index = (this.index + 1) % this.tracks.length;
+      this.startPlayback();
+    }
+    stopSource() {
+      if (!this.source || !this.ctx) {
+        this.source = null;
         return;
       }
-      if (this.audio && this.audio.paused) {
-        const attempt = this.audio.play();
-        if (attempt && typeof attempt.catch === "function") {
-          attempt.catch(() => {
-            this.started = false;
-            this.audio = null;
-            pendingMusicStart = true;
-          });
-        }
+      const source = this.source;
+      this.source = null;
+      try {
+        source.stop(this.ctx.currentTime + 0.05);
+      } catch (error) {}
+    }
+    stop() {
+      if (!this.gain || !this.ctx) {
+        this.stopSource();
+        this.started = false;
+        return;
+      }
+      const now = this.ctx.currentTime;
+      this.gain.gain.cancelScheduledValues(now);
+      this.gain.gain.setTargetAtTime(0, now, 0.15);
+      this.stopSource();
+      this.started = false;
+    }
+    resumeIfSuspended() {
+      if (this.ctx && this.ctx.state === "suspended") {
+        this.ctx.resume();
       }
     }
   }
@@ -639,15 +691,16 @@
   let initialStartReleased = false;
 
   const haltLevelMusic = () => {
-    pendingMusicStart = false;
     MUSIC.stop();
   };
   const engageAudioSystems = () => {
+    AUDIO.unlock();
+    const masterNode = AUDIO.getMasterNode();
+    if (masterNode) {
+      MUSIC.attachAudioBus(masterNode);
+    }
     if (!audioUnlockTriggered) {
       audioUnlockTriggered = true;
-      AUDIO.unlock();
-    } else {
-      AUDIO.unlock();
     }
     MUSIC.resumeIfSuspended();
   };
@@ -680,6 +733,10 @@
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && audioUnlockTriggered) {
       AUDIO.unlock();
+      const masterNode = AUDIO.getMasterNode();
+      if (masterNode) {
+        MUSIC.attachAudioBus(masterNode);
+      }
       MUSIC.resumeIfSuspended();
     }
   });
@@ -3667,9 +3724,9 @@
       }
       AUDIO.playWarning();
       if (advanceTrack) {
-        MUSIC.playNextLevelTrack(0);
+        MUSIC.playNextLevelTrack();
       } else {
-        MUSIC.playRandomLevelTrack(0);
+        MUSIC.playRandomLevelTrack();
       }
     }
     releaseInitialStart() {
@@ -3679,9 +3736,6 @@
       }
     }
     update(dt) {
-      if (pendingMusicStart) {
-        MUSIC.resumeIfSuspended();
-      }
       const width = canvas.width / DPR;
       const height = canvas.height / DPR;
       this.updatePlayerDeath(dt);
