@@ -127,6 +127,7 @@
       this.noiseBuffer = null;
       this.enabled = false;
       this.warningClip = null;
+      this.explosionClip = null;
       this.readyCallbacks = [];
     }
     unlock() {
@@ -416,6 +417,35 @@
         offset: 0.8,
       });
     }
+    playExplosionClip() {
+      if (typeof Audio === "undefined") return;
+      const ensureClip = () => {
+        if (!this.explosionClip) {
+          this.explosionClip = new Audio(EXPLOSION_TRACK);
+          this.explosionClip.preload = "auto";
+          this.explosionClip.loop = false;
+          this.explosionClip.volume = 0.92;
+        }
+        return this.explosionClip;
+      };
+      try {
+        const clip = ensureClip();
+        clip.pause();
+        clip.currentTime = 0;
+        const playAttempt = clip.play();
+        if (playAttempt && typeof playAttempt.catch === "function") {
+          playAttempt.catch(() => {});
+        }
+      } catch (error) {
+        try {
+          const fallback = new Audio(EXPLOSION_TRACK);
+          fallback.volume = 0.9;
+          fallback.play().catch(() => {});
+        } catch (secondaryError) {
+          // Swallow; procedural explosion will still play.
+        }
+      }
+    }
     playPlayerDamage() {
       this.oscBurst(
         [
@@ -434,6 +464,7 @@
     "static/audio/Void Barrage.mp3",
   ];
   const WARNING_TRACK = "static/audio/klaxon.mp3";
+  const EXPLOSION_TRACK = "static/audio/explosion.mp3";
 
   class MusicPlayer {
     constructor(tracks) {
@@ -1375,7 +1406,7 @@
       fire(segment, boss, playerPos, level) {
         const muzzle = segment.worldEnd.clone();
         const missiles = [];
-        const missileCount = 8;
+        const missileCount = 5;
         const totalSpread = (20 * Math.PI) / 180;
         const baseAngle = Math.atan2(playerPos.y - muzzle.y, playerPos.x - muzzle.x);
         for (let i = 0; i < missileCount; i += 1) {
@@ -1462,7 +1493,7 @@
         const angle = baseAngle + (i / bulletCount) * Math.PI * 2;
         outputs.bullets.push(new Bullet(center.clone(), Vec2.fromAngle(angle, bulletSpeed), 5, "#ffffff", "boss"));
       }
-      const missileCount = 8;
+      const missileCount = 5;
       const spread = (20 * Math.PI) / 180;
       for (let i = 0; i < missileCount; i += 1) {
         const t = missileCount > 1 ? i / (missileCount - 1) : 0.5;
@@ -1887,6 +1918,9 @@
           seg.flashTimer = 1.5;
         }
       });
+      if (typeof AUDIO !== "undefined" && AUDIO && typeof AUDIO.playExplosionClip === "function") {
+        AUDIO.playExplosionClip();
+      }
     }
     triggerCoreSupernova(particles) {
       if (this.coreExplosionTriggered) return;
@@ -2383,10 +2417,13 @@
       ctx.restore();
     });
 
-    const pursuitAnchor = this.core ? this.core.worldCenter.clone() : this.pos.clone();
-    const backDir = Vec2.fromAngle(this.heading + Math.PI, 1);
-    const anchorPoint = pursuitAnchor.clone().add(backDir.clone().scale(this.core.radius * 0.8));
-    drawPursuitFlame(ctx, anchorPoint, this.heading + Math.PI, 60 + this.level * 2.5, 28 + this.level * 1.2, 0.5);
+    if (!this.coreCritical) {
+      const pursuitAnchor = this.core ? this.core.worldCenter.clone() : this.pos.clone();
+      const radius = (this.core && this.core.radius) || 40;
+      const upward = new Vec2(0, -1);
+      const anchorPoint = pursuitAnchor.clone().add(upward.clone().scale(radius * 0.8));
+      drawPursuitFlame(ctx, anchorPoint, -Math.PI / 2, 60 + this.level * 2.5, 28 + this.level * 1.2, 0.5);
+    }
 
     const drawSegment = (segment) => {
         if (segment.destroyed) return;
@@ -2574,20 +2611,102 @@
     ctx.save();
     ctx.translate(segment.worldEnd.x, segment.worldEnd.y);
     ctx.rotate(segment.absoluteAngle);
-    const housingWidth = segment.thickness * 1.15;
-    const housingBack = segment.thickness * 1;
-    const housingForward = segment.thickness * 0.35;
+    const housingWidth = segment.thickness * 1.02;
+    const housingBack = segment.thickness * 1.05;
+    const housingForward = segment.thickness * 0.6;
     const recoilOffset = (style.recoil || 8) * recoil;
     ctx.translate(-recoilOffset, 0);
 
-    drawRoundedRect(ctx, -housingBack, -housingWidth / 2, housingBack + housingForward, housingWidth, housingWidth * 0.32);
-    ctx.fillStyle = style.body;
+    const totalLength = housingBack + housingForward;
+    const spineHeight = housingWidth * 0.58;
+
+    // Base plate keeps the turret connected to the segment and adds a thin silhouette.
+    ctx.save();
+    ctx.scale(1, 0.55);
+    ctx.fillStyle = "rgba(18, 6, 4, 0.55)";
+    ctx.beginPath();
+    ctx.ellipse(-housingBack * 0.35, 0, housingBack * 0.85, housingWidth * 0.52, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.lineWidth = 1.6;
+    ctx.restore();
+
+    // Sculpted turret housing with a tapered muzzle for a sleeker look.
+    ctx.beginPath();
+    ctx.moveTo(-housingBack, -spineHeight / 2);
+    ctx.bezierCurveTo(-housingBack * 0.35, -housingWidth * 0.9, housingForward * 0.1, -spineHeight * 0.9, housingForward, -spineHeight * 0.25);
+    ctx.lineTo(housingForward * 1.12, -spineHeight * 0.12);
+    ctx.lineTo(housingForward * 1.12, spineHeight * 0.12);
+    ctx.lineTo(housingForward, spineHeight * 0.25);
+    ctx.bezierCurveTo(housingForward * 0.1, spineHeight * 0.9, -housingBack * 0.35, housingWidth * 0.9, -housingBack, spineHeight / 2);
+    ctx.closePath();
+    const housingGradient = ctx.createLinearGradient(-housingBack, 0, housingForward * 1.1, 0);
+    housingGradient.addColorStop(0, style.body);
+    housingGradient.addColorStop(0.55, style.body);
+    housingGradient.addColorStop(1, style.barrel);
+    ctx.fillStyle = housingGradient;
+    ctx.fill();
+    ctx.lineWidth = 1.4;
     ctx.strokeStyle = style.accent;
-    ctx.globalAlpha = 0.9;
     ctx.stroke();
+
+    // Upper plating strips provide extra depth.
+    ctx.globalAlpha = 0.9;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = style.accent;
+    const plateCount = 3;
+    for (let i = 0; i < plateCount; i += 1) {
+      const t = (i + 1) / (plateCount + 1);
+      const x = -housingBack + totalLength * t;
+      ctx.beginPath();
+      ctx.moveTo(x, -spineHeight * 0.55);
+      ctx.lineTo(x + segment.thickness * 0.15, -spineHeight * 0.15);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, spineHeight * 0.55);
+      ctx.lineTo(x + segment.thickness * 0.15, spineHeight * 0.15);
+      ctx.stroke();
+    }
     ctx.globalAlpha = 1;
+
+    // Barrel shroud and vents.
+    const shroudWidth = spineHeight * 0.7;
+    ctx.beginPath();
+    ctx.moveTo(housingForward * 0.75, -shroudWidth / 2);
+    ctx.lineTo(housingForward * 1.32, -shroudWidth * 0.35);
+    ctx.lineTo(housingForward * 1.5, 0);
+    ctx.lineTo(housingForward * 1.32, shroudWidth * 0.35);
+    ctx.lineTo(housingForward * 0.75, shroudWidth / 2);
+    ctx.closePath();
+    ctx.fillStyle = style.barrel;
+    ctx.fill();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = style.accent;
+    ctx.stroke();
+
+    ctx.lineWidth = 0.9;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+    for (let i = 0; i < 2; i += 1) {
+      const offset = (i + 1) * shroudWidth * 0.25;
+      ctx.beginPath();
+      ctx.moveTo(-housingBack * 0.2, -offset);
+      ctx.lineTo(housingForward * 0.65, -offset * 0.6);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-housingBack * 0.2, offset);
+      ctx.lineTo(housingForward * 0.65, offset * 0.6);
+      ctx.stroke();
+    }
+
+    // Mechanical fasteners.
+    const boltRadius = Math.max(1.2, segment.thickness * 0.08);
+    [-1, 1].forEach((side) => {
+      const y = side * spineHeight * 0.38;
+      ctx.beginPath();
+      ctx.arc(-housingBack * 0.45, y, boltRadius, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+      ctx.fill();
+      ctx.strokeStyle = style.accent;
+      ctx.stroke();
+    });
 
     const energyPulse = 0.35 + 0.25 * Math.sin(phase * (style.pulseSpeed + 0.6) + flash * 6);
     ctx.save();
@@ -2974,7 +3093,27 @@
     ctx.restore();
   }
 
-  function drawPursuitFlame(ctx, origin, angle, baseLength, baseWidth, phaseOffset = 0) {
+  const DEFAULT_FLAME_PALETTE = {
+    start: (pulse) => `rgba(255, 240, 210, ${0.55 + pulse * 0.15})`,
+    mid: (pulse) => `rgba(255, 170, 90, ${0.35 + pulse * 0.2})`,
+    end: "rgba(60, 140, 255, 0)",
+  };
+
+  const PLAYER_FLAME_PALETTE = {
+    start: (pulse) => `rgba(210, 245, 255, ${0.6 + pulse * 0.2})`,
+    mid: (pulse) => `rgba(90, 195, 255, ${0.45 + pulse * 0.3})`,
+    end: "rgba(20, 90, 220, 0)",
+  };
+
+  function drawPursuitFlame(
+    ctx,
+    origin,
+    angle,
+    baseLength,
+    baseWidth,
+    phaseOffset = 0,
+    palette = DEFAULT_FLAME_PALETTE
+  ) {
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     const pulse = 0.7 + Math.sin(now * 0.004 + phaseOffset) * 0.3;
     const length = baseLength * (0.7 + pulse * 0.4);
@@ -2983,9 +3122,10 @@
     ctx.translate(origin.x, origin.y);
     ctx.rotate(angle);
     const gradient = ctx.createLinearGradient(0, 0, length, 0);
-    gradient.addColorStop(0, `rgba(255, 240, 210, ${0.55 + pulse * 0.15})`);
-    gradient.addColorStop(0.4, `rgba(255, 170, 90, ${0.35 + pulse * 0.2})`);
-    gradient.addColorStop(1, "rgba(60, 140, 255, 0)");
+    const colorAt = (entry) => (typeof entry === "function" ? entry(pulse) : entry);
+    gradient.addColorStop(0, colorAt(palette.start));
+    gradient.addColorStop(0.4, colorAt(palette.mid));
+    gradient.addColorStop(1, colorAt(palette.end));
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.moveTo(0, -width / 2);
@@ -3168,30 +3308,132 @@
       if (this.invulnerable > 0 && Math.floor(this.invulnerable * 12) % 2 === 0) {
         ctx.globalAlpha = 0.35;
       }
-      ctx.strokeStyle = this.invulnerable > 0 ? "#57c9ff" : "#9ff7ff";
-      ctx.lineWidth = 2;
+      const hullColor = this.invulnerable > 0 ? "#57c9ff" : "#9ff7ff";
+      const r = this.radius;
+      const hullPoints = [
+        { x: r * 1.35, y: 0 },
+        { x: r * 0.32, y: -r * 1 },
+        { x: -r * 0.05, y: -r * 0.62 },
+        { x: -r * 0.88, y: -r * 0.48 },
+        { x: -r * 1.35, y: -r * 0.12 },
+        { x: -r * 1.35, y: r * 0.12 },
+        { x: -r * 0.88, y: r * 0.48 },
+        { x: -r * 0.05, y: r * 0.62 },
+        { x: r * 0.32, y: r * 1 },
+      ];
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.moveTo(14, 0);
-      ctx.lineTo(-10, -8);
-      ctx.lineTo(-6, -3);
-      ctx.lineTo(-12, 0);
-      ctx.lineTo(-6, 3);
-      ctx.lineTo(-10, 8);
+      ctx.moveTo(hullPoints[0].x, hullPoints[0].y);
+      for (let i = 1; i < hullPoints.length; i += 1) {
+        ctx.lineTo(hullPoints[i].x, hullPoints[i].y);
+      }
       ctx.closePath();
+      const hullGradient = ctx.createLinearGradient(-r * 1.4, 0, r * 1.35, 0);
+      hullGradient.addColorStop(0, "#07121f");
+      hullGradient.addColorStop(0.45, "#102742");
+      hullGradient.addColorStop(0.75, "#1f5f7d");
+      hullGradient.addColorStop(1, "#8feeff");
+      ctx.fillStyle = hullGradient;
+      ctx.fill();
+      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = hullColor;
       ctx.stroke();
+
+      const platingPoints = [
+        { x: r * 1.1, y: 0 },
+        { x: r * 0.25, y: -r * 0.72 },
+        { x: -r * 0.05, y: -r * 0.38 },
+        { x: -r * 0.96, y: -r * 0.26 },
+        { x: -r * 1.16, y: 0 },
+        { x: -r * 0.96, y: r * 0.26 },
+        { x: -r * 0.05, y: r * 0.38 },
+        { x: r * 0.25, y: r * 0.72 },
+      ];
+      ctx.globalAlpha = 0.75;
+      ctx.beginPath();
+      ctx.moveTo(platingPoints[0].x, platingPoints[0].y);
+      for (let i = 1; i < platingPoints.length; i += 1) {
+        ctx.lineTo(platingPoints[i].x, platingPoints[i].y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "rgba(120, 200, 255, 0.2)";
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = "rgba(180, 240, 255, 0.55)";
+      ctx.beginPath();
+      ctx.moveTo(-r * 1.05, 0);
+      ctx.quadraticCurveTo(r * 0.05, -r * 0.14, r * 1.05, 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * 1.05, 0);
+      ctx.quadraticCurveTo(r * 0.05, r * 0.14, r * 1.05, 0);
+      ctx.stroke();
+
+      ctx.lineWidth = 0.9;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+      ctx.beginPath();
+      ctx.moveTo(r * 0.25, -r * 0.85);
+      ctx.lineTo(-r * 0.7, -r * 0.45);
+      ctx.lineTo(-r * 1.2, -r * 0.12);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(r * 0.25, r * 0.85);
+      ctx.lineTo(-r * 0.7, r * 0.45);
+      ctx.lineTo(-r * 1.2, r * 0.12);
+      ctx.stroke();
+
+      const canopyGradient = ctx.createLinearGradient(-r * 0.2, 0, r * 0.85, 0);
+      canopyGradient.addColorStop(0, "rgba(8, 22, 40, 0.85)");
+      canopyGradient.addColorStop(1, "rgba(140, 220, 255, 0.95)");
+      ctx.beginPath();
+      ctx.ellipse(r * 0.15, 0, r * 0.55, r * 0.37, 0, 0, Math.PI * 2);
+      ctx.fillStyle = canopyGradient;
+      ctx.fill();
+      ctx.lineWidth = 0.9;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.stroke();
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      ctx.beginPath();
+      ctx.ellipse(r * 0.32, -r * 0.1, r * 0.3, r * 0.18, -0.35, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = "rgba(150, 220, 255, 0.85)";
+      ctx.beginPath();
+      ctx.arc(-r * 0.35, -r * 0.85, 1.7, 0, Math.PI * 2);
+      ctx.arc(-r * 0.35, r * 0.85, 1.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(90, 190, 255, 0.8)";
+      ctx.beginPath();
+      ctx.moveTo(r * 0.85, -r * 0.22);
+      ctx.lineTo(r * 0.4, 0);
+      ctx.lineTo(r * 0.85, r * 0.22);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
 
       const turretBaseX = -(this.radius + 2);
       const turretRadius = 4;
       const turretBarrelLength = 4;
-      ctx.fillStyle = "rgba(120, 170, 210, 0.9)";
-      ctx.strokeStyle = "#e0f4ff";
+      ctx.fillStyle = "rgba(150, 210, 255, 0.92)";
+      ctx.strokeStyle = "#d9f2ff";
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.arc(turretBaseX, 0, turretRadius, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       drawRoundedRect(ctx, turretBaseX - 1.6, -turretBarrelLength / 2, 3.2, turretBarrelLength, 1.5);
-      ctx.fillStyle = "rgba(200, 240, 255, 0.95)";
+      ctx.fillStyle = "rgba(215, 245, 255, 0.95)";
       ctx.fill();
       ctx.stroke();
       if (this.turretFlash > 0) {
@@ -3231,9 +3473,9 @@
         const length = 10 + power * 16;
         const width = 3 + power * 4;
         const gradient = ctx.createLinearGradient(0, 0, length, 0);
-        gradient.addColorStop(0, `rgba(255, 240, 200, ${0.55 + power * 0.3})`);
-        gradient.addColorStop(0.6, `rgba(255, 150, 90, ${0.35 + power * 0.25})`);
-        gradient.addColorStop(1, "rgba(64, 160, 255, 0)");
+        gradient.addColorStop(0, `rgba(210, 245, 255, ${0.65 + power * 0.25})`);
+        gradient.addColorStop(0.55, `rgba(110, 200, 255, ${0.45 + power * 0.3})`);
+        gradient.addColorStop(1, "rgba(20, 80, 200, 0)");
         ctx.fillStyle = gradient;
         ctx.beginPath();
         ctx.moveTo(0, -width / 2);
@@ -3241,12 +3483,23 @@
         ctx.lineTo(0, width / 2);
         ctx.closePath();
         ctx.fill();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = 0.35 + power * 0.4;
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.35 + power * 0.25})`;
+        ctx.beginPath();
+        ctx.moveTo(length * 0.45, -width * 0.2);
+        ctx.lineTo(length, 0);
+        ctx.lineTo(length * 0.45, width * 0.2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
         ctx.restore();
       });
     }
     drawPursuitThruster(ctx) {
-      const origin = new Vec2(0, -this.radius - 4);
-      drawPursuitFlame(ctx, origin, -Math.PI / 2, 34, 16, 0);
+      const origin = new Vec2(-this.radius - 4, 0);
+      drawPursuitFlame(ctx, origin, Math.PI, 34, 16, 0, PLAYER_FLAME_PALETTE);
     }
   }
 
