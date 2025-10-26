@@ -127,9 +127,13 @@
       this.noiseBuffer = null;
       this.enabled = false;
       this.warningClip = null;
+      this.readyCallbacks = [];
     }
     unlock() {
-      if (this.enabled) return;
+      if (this.enabled) {
+        this.flushReadyCallbacks();
+        return;
+      }
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
       try {
@@ -139,9 +143,31 @@
         this.master.connect(this.ctx.destination);
         this.noiseBuffer = this.buildNoiseBuffer();
         this.enabled = true;
+        this.flushReadyCallbacks();
       } catch (error) {
         console.warn("Audio init failed:", error);
       }
+    }
+    isReady() {
+      return this.enabled;
+    }
+    onReady(callback) {
+      if (this.enabled) {
+        callback();
+      } else {
+        this.readyCallbacks.push(callback);
+      }
+    }
+    flushReadyCallbacks() {
+      if (!this.enabled) return;
+      const callbacks = this.readyCallbacks.splice(0);
+      callbacks.forEach((cb) => {
+        try {
+          cb();
+        } catch (error) {
+          console.error("Audio ready callback failed", error);
+        }
+      });
     }
     buildNoiseBuffer() {
       if (!this.ctx) return null;
@@ -488,12 +514,29 @@
   const AUDIO = new SFXEngine();
   window.__WF_AUDIO__ = AUDIO;
   const MUSIC = new MusicPlayer(MUSIC_TRACKS);
+  let audioUnlockTriggered = false;
   const engageAudioSystems = () => {
+    if (audioUnlockTriggered) return;
+    audioUnlockTriggered = true;
     AUDIO.unlock();
-    MUSIC.start();
   };
-  ["pointerdown", "keydown", "touchstart"].forEach((evt) => {
-    window.addEventListener(evt, engageAudioSystems, { once: true });
+  const registerAudioGesture = (target, event, options = {}) => {
+    if (!target) return;
+    target.addEventListener(
+      event,
+      (ev) => {
+        engageAudioSystems();
+        if (options.prevent) {
+          ev.preventDefault();
+        }
+      },
+      { once: true, passive: options.passive ?? true }
+    );
+  };
+  ["pointerdown", "mousedown", "touchstart", "keydown"].forEach((evt) => {
+    registerAudioGesture(window, evt, { passive: evt === "touchstart" ? false : true });
+    registerAudioGesture(document, evt, { passive: evt === "touchstart" ? false : true });
+    registerAudioGesture(canvas, evt, { passive: evt === "touchstart" ? false : true });
   });
 
   function lerpAngle(current, target, maxStep) {
@@ -1332,31 +1375,27 @@
       fire(segment, boss, playerPos, level) {
         const muzzle = segment.worldEnd.clone();
         const missiles = [];
-        const missilesPerSide = 2;
-        const fanSpread = 0.28;
-        const spacing = 32;
-        const sides = [-1, 1];
-        sides.forEach((orientation) => {
-          const baseAngle = orientation > 0 ? 0 : Math.PI;
-          for (let i = 0; i < missilesPerSide; i += 1) {
-            const lerpValue = missilesPerSide > 1 ? i / (missilesPerSide - 1) : 0.5;
-            const offsetFactor = lerpValue - 0.5;
-            const lateral = Vec2.fromAngle(baseAngle + Math.PI / 2, offsetFactor * spacing);
-            const forward = Vec2.fromAngle(baseAngle, 18 + offsetFactor * 4);
-            const spawnPos = muzzle.clone().add(lateral).add(forward);
-            const initialDir = Vec2.fromAngle(baseAngle + offsetFactor * fanSpread, 1);
-            const turnDelay = 0.12 + Math.random() * 0.08;
-            missiles.push(
-              new Missile(spawnPos, playerPos, 250 + level * 18, 1.4, "#ffffff", {
-                initialDirection: initialDir,
-                turnDelay,
-                minTurnRate: 0.35,
-                agilityDecay: 0.42,
-                minAgility: 0.18,
-              })
-            );
-          }
-        });
+        const missileCount = 8;
+        const totalSpread = (20 * Math.PI) / 180;
+        const baseAngle = Math.atan2(playerPos.y - muzzle.y, playerPos.x - muzzle.x);
+        for (let i = 0; i < missileCount; i += 1) {
+          const t = missileCount > 1 ? i / (missileCount - 1) : 0.5;
+          const offsetAngle = -totalSpread + t * (totalSpread * 2);
+          const aimAngle = baseAngle + offsetAngle;
+          const lateralOffset = (i - (missileCount - 1) / 2) * segment.thickness * 0.15;
+          const spawnPos = muzzle.clone().add(Vec2.fromAngle(baseAngle + Math.PI / 2, lateralOffset));
+          const initialDir = Vec2.fromAngle(aimAngle, 1);
+          const turnDelay = 0.08 + Math.random() * 0.06;
+          missiles.push(
+            new Missile(spawnPos, playerPos, 260 + level * 18, 1.55, "#ffffff", {
+              initialDirection: initialDir,
+              turnDelay,
+              minTurnRate: 0.4,
+              agilityDecay: 0.45,
+              minAgility: 0.18,
+            })
+          );
+        }
         AUDIO.playMissileLaunch(missiles.length);
         return { missiles };
       },
@@ -1423,31 +1462,28 @@
         const angle = baseAngle + (i / bulletCount) * Math.PI * 2;
         outputs.bullets.push(new Bullet(center.clone(), Vec2.fromAngle(angle, bulletSpeed), 5, "#ffffff", "boss"));
       }
-      const missilesPerSide = 2;
-      const spacing = 36;
-      const fanSpread = 0.32;
-      const sides = [-1, 1];
-      sides.forEach((orientation) => {
-        const baseAngle = orientation > 0 ? 0 : Math.PI;
-        for (let i = 0; i < missilesPerSide; i += 1) {
-          const lerpValue = missilesPerSide > 1 ? i / (missilesPerSide - 1) : 0.5;
-          const offsetFactor = lerpValue - 0.5;
-          const lateral = Vec2.fromAngle(baseAngle + Math.PI / 2, offsetFactor * spacing);
-          const forward = Vec2.fromAngle(baseAngle, 26 + offsetFactor * 6);
-          const spawnPos = center.clone().add(forward).add(lateral);
-          const initialDir = Vec2.fromAngle(baseAngle + offsetFactor * fanSpread, 1);
-          const turnDelay = 0.1 + Math.random() * 0.12;
-          outputs.missiles.push(
-            new Missile(spawnPos, playerPos, 270 + level * 20, 1.55, "#ffffff", {
-              initialDirection: initialDir,
-              turnDelay,
-              minTurnRate: 0.4,
-              agilityDecay: 0.48,
-              minAgility: 0.2,
-            })
-          );
-        }
-      });
+      const missileCount = 8;
+      const spread = (20 * Math.PI) / 180;
+      for (let i = 0; i < missileCount; i += 1) {
+        const t = missileCount > 1 ? i / (missileCount - 1) : 0.5;
+        const offsetAngle = -spread + t * (spread * 2);
+        const aimAngle = baseAngle + offsetAngle;
+        const lateralOffset = (i - (missileCount - 1) / 2) * segment.thickness * 0.2;
+        const spawnPos = center
+          .clone()
+          .add(Vec2.fromAngle(baseAngle, segment.radius * 0.8))
+          .add(Vec2.fromAngle(baseAngle + Math.PI / 2, lateralOffset));
+        const initialDir = Vec2.fromAngle(aimAngle, 1);
+        outputs.missiles.push(
+          new Missile(spawnPos, playerPos, 280 + level * 22, 1.7, "#ffffff", {
+            initialDirection: initialDir,
+            turnDelay: 0.08 + Math.random() * 0.08,
+            minTurnRate: 0.45,
+            agilityDecay: 0.5,
+            minAgility: 0.22,
+          })
+        );
+      }
       AUDIO.playMissileLaunch(outputs.missiles.length);
       const laserDirection = Vec2.fromAngle(baseAngle, 1);
       const { warmup, duration } = resolveTiming("coreLaser");
@@ -2343,11 +2379,16 @@
           ctx.strokeStyle = "#d8d8d8";
           ctx.lineWidth = 1.4;
           ctx.stroke();
-        });
-        ctx.restore();
       });
+      ctx.restore();
+    });
 
-      const drawSegment = (segment) => {
+    const pursuitAnchor = this.core ? this.core.worldCenter.clone() : this.pos.clone();
+    const backDir = Vec2.fromAngle(this.heading + Math.PI, 1);
+    const anchorPoint = pursuitAnchor.clone().add(backDir.clone().scale(this.core.radius * 0.8));
+    drawPursuitFlame(ctx, anchorPoint, this.heading + Math.PI, 60 + this.level * 2.5, 28 + this.level * 1.2, 0.5);
+
+    const drawSegment = (segment) => {
         if (segment.destroyed) return;
         if (segment.type === "core") {
           ctx.save();
@@ -2933,6 +2974,28 @@
     ctx.restore();
   }
 
+  function drawPursuitFlame(ctx, origin, angle, baseLength, baseWidth, phaseOffset = 0) {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const pulse = 0.7 + Math.sin(now * 0.004 + phaseOffset) * 0.3;
+    const length = baseLength * (0.7 + pulse * 0.4);
+    const width = baseWidth * (0.7 + pulse * 0.3);
+    ctx.save();
+    ctx.translate(origin.x, origin.y);
+    ctx.rotate(angle);
+    const gradient = ctx.createLinearGradient(0, 0, length, 0);
+    gradient.addColorStop(0, `rgba(255, 240, 210, ${0.55 + pulse * 0.15})`);
+    gradient.addColorStop(0.4, `rgba(255, 170, 90, ${0.35 + pulse * 0.2})`);
+    gradient.addColorStop(1, "rgba(60, 140, 255, 0)");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(0, -width / 2);
+    ctx.lineTo(length, 0);
+    ctx.lineTo(0, width / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   function drawCoreArmature(ctx, segment) {
     const style =
       (segment.weaponKey && WEAPON_LAUNCHER_STYLES[segment.weaponKey]) || WEAPON_LAUNCHER_STYLES["core-storm"];
@@ -3019,7 +3082,12 @@
       this.invulnerable = 0;
       this.fireDirection = new Vec2(0, -1);
       this.hitFlash = 0;
-      this.thrustVisual = 0;
+      this.thrusters = {
+        up: 0,
+        down: 0,
+        left: 0,
+        right: 0,
+      };
       this.turretFlash = 0;
     }
     update(dt, input, canvasWidth, canvasHeight) {
@@ -3039,8 +3107,14 @@
       this.reload -= dt;
       this.invulnerable = Math.max(this.invulnerable - dt, 0);
       this.hitFlash = Math.max(this.hitFlash - dt, 0);
-      const targetVisual = Math.min(1, thrustInput.length());
-      this.thrustVisual = lerp(this.thrustVisual, targetVisual, Math.min(1, dt * 12));
+      const smoothing = Math.min(1, dt * 12);
+      const setThruster = (key, target) => {
+        this.thrusters[key] = lerp(this.thrusters[key], target, smoothing);
+      };
+      setThruster("down", Math.max(0, -thrustInput.y));
+      setThruster("up", Math.max(0, thrustInput.y));
+      setThruster("left", Math.max(0, thrustInput.x));
+      setThruster("right", Math.max(0, -thrustInput.x));
       this.turretFlash = Math.max(this.turretFlash - dt, 0);
     }
     fire() {
@@ -3068,31 +3142,8 @@
       const baseAngle = Math.PI / 2;
       ctx.save();
       ctx.rotate(baseAngle);
-      if (this.thrustVisual > 0.05) {
-        const thrusterLength = 12 + this.thrustVisual * 14;
-        const thrusterWidth = 4 + this.thrustVisual * 3;
-        const offsets = [-6.5, 6.5];
-        offsets.forEach((offset) => {
-          ctx.save();
-          ctx.translate(offset, -6);
-          const gradient = ctx.createLinearGradient(0, 0, 0, -thrusterLength);
-          gradient.addColorStop(0, `rgba(255, 210, 150, ${0.65 * this.thrustVisual})`);
-          gradient.addColorStop(0.5, `rgba(255, 140, 80, ${0.45 * this.thrustVisual})`);
-          gradient.addColorStop(1, "rgba(64, 150, 255, 0)");
-          ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.moveTo(-thrusterWidth * 0.35, 0);
-          ctx.lineTo(thrusterWidth * 0.35, 0);
-          ctx.lineTo(0, -thrusterLength);
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-        });
-      }
-      ctx.restore();
-
-      ctx.save();
-      ctx.rotate(baseAngle);
+      this.drawDirectionalThrusters(ctx);
+      this.drawPursuitThruster(ctx);
       if (this.hitFlash > 0) {
         const t = clamp(this.hitFlash / 0.5, 0, 1);
         const radius = this.radius * (1.6 + (1 - t) * 0.8);
@@ -3129,17 +3180,17 @@
       ctx.closePath();
       ctx.stroke();
 
-      const turretBaseY = -(this.radius + 2);
+      const turretBaseX = -(this.radius + 2);
       const turretRadius = 4;
       const turretBarrelLength = 4;
       ctx.fillStyle = "rgba(120, 170, 210, 0.9)";
       ctx.strokeStyle = "#e0f4ff";
       ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.arc(0, turretBaseY, turretRadius, 0, Math.PI * 2);
+      ctx.arc(turretBaseX, 0, turretRadius, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      drawRoundedRect(ctx, -1.6, turretBaseY - turretBarrelLength, 3.2, turretBarrelLength, 1.5);
+      drawRoundedRect(ctx, turretBaseX - 1.6, -turretBarrelLength / 2, 3.2, turretBarrelLength, 1.5);
       ctx.fillStyle = "rgba(200, 240, 255, 0.95)";
       ctx.fill();
       ctx.stroke();
@@ -3147,21 +3198,55 @@
         const flashStrength = this.turretFlash / 0.18;
         const flashLength = 8 * flashStrength;
         ctx.globalAlpha = 0.7 * flashStrength;
-        const flashY = turretBaseY - turretBarrelLength;
-        const gradient = ctx.createLinearGradient(0, flashY, 0, flashY - flashLength);
+        const flashStartX = turretBaseX - turretBarrelLength;
+        const gradient = ctx.createLinearGradient(flashStartX, 0, flashStartX - flashLength, 0);
         gradient.addColorStop(0, "rgba(255, 230, 190, 0.9)");
         gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
         ctx.fillStyle = gradient;
         ctx.beginPath();
-        ctx.moveTo(-3.5, flashY);
-        ctx.lineTo(0, flashY - flashLength);
-        ctx.lineTo(3.5, flashY);
+        ctx.moveTo(flashStartX, -3.5);
+        ctx.lineTo(flashStartX - flashLength, 0);
+        ctx.lineTo(flashStartX, 3.5);
         ctx.closePath();
         ctx.fill();
         ctx.globalAlpha = 1;
       }
       ctx.restore();
       ctx.restore();
+    }
+    drawDirectionalThrusters(ctx) {
+      const config = [
+        { key: "down", anchor: new Vec2(this.radius + 6, 0), dir: new Vec2(1, 0) },
+        { key: "up", anchor: new Vec2(-(this.radius + 6), 0), dir: new Vec2(-1, 0) },
+        { key: "left", anchor: new Vec2(0, this.radius + 6), dir: new Vec2(0, 1) },
+        { key: "right", anchor: new Vec2(0, -(this.radius + 6)), dir: new Vec2(0, -1) },
+      ];
+      config.forEach(({ key, anchor, dir }) => {
+        const power = this.thrusters[key] || 0;
+        if (power <= 0.03) return;
+        ctx.save();
+        ctx.translate(anchor.x, anchor.y);
+        const angle = Math.atan2(dir.y, dir.x);
+        ctx.rotate(angle);
+        const length = 10 + power * 16;
+        const width = 3 + power * 4;
+        const gradient = ctx.createLinearGradient(0, 0, length, 0);
+        gradient.addColorStop(0, `rgba(255, 240, 200, ${0.55 + power * 0.3})`);
+        gradient.addColorStop(0.6, `rgba(255, 150, 90, ${0.35 + power * 0.25})`);
+        gradient.addColorStop(1, "rgba(64, 160, 255, 0)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.moveTo(0, -width / 2);
+        ctx.lineTo(length, 0);
+        ctx.lineTo(0, width / 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+    drawPursuitThruster(ctx) {
+      const origin = new Vec2(0, -this.radius - 4);
+      drawPursuitFlame(ctx, origin, -Math.PI / 2, 34, 16, 0);
     }
   }
 
@@ -3205,6 +3290,10 @@
       hudScore.textContent = `Score: ${this.score}`;
     }
     beginLevel(advanceTrack = false) {
+      if (!AUDIO.isReady()) {
+        AUDIO.onReady(() => this.beginLevel(advanceTrack));
+        return;
+      }
       AUDIO.playWarning();
       if (advanceTrack) {
         MUSIC.queueNext(0);
