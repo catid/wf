@@ -253,42 +253,71 @@
       this.noiseBurst({ duration: 0.12, filter: "bandpass", startFreq: 6000, endFreq: 1400, level: 0.22 });
     }
     playWarning() {
+      // Relay clack + capacitor sizzle before the siren spins up.
       this.oscBurst(
         [
-          { type: "square", frequency: 820, level: 0.5, pitchEnd: 460 },
-          { type: "sawtooth", frequency: 510, level: 0.4, pitchEnd: 360 },
+          { type: "triangle", frequency: 1450, level: 0.22, pitchEnd: 520 },
+          { type: "square", frequency: 980, level: 0.18, pitchEnd: 420 },
         ],
-        { duration: 0.45, attack: 0.01 }
-      );
-      this.oscBurst(
-        [
-          { type: "square", frequency: 640, level: 0.45, pitchEnd: 380 },
-          { type: "triangle", frequency: 430, level: 0.32, pitchEnd: 260 },
-        ],
-        { duration: 0.45, attack: 0.01, offset: 0.45 }
+        { duration: 0.18, attack: 0.0015 }
       );
       this.noiseBurst({
-        duration: 0.6,
-        filter: "bandpass",
-        startFreq: 2800,
-        endFreq: 320,
-        level: 0.6,
-        offset: 0.08,
+        duration: 0.2,
+        filter: "highpass",
+        startFreq: 5200,
+        endFreq: 1800,
+        level: 0.32,
+        offset: 0.02,
       });
+
+      const cycles = 3;
+      const spacing = 0.52;
+      for (let i = 0; i < cycles; i += 1) {
+        const offset = 0.15 + i * spacing;
+        const intensity = 0.85 + i * 0.08;
+        // Downward bark.
+        this.oscBurst(
+          [
+            { type: "square", frequency: 920, level: 0.48 * intensity, pitchEnd: 360 },
+            { type: "sawtooth", frequency: 620, level: 0.34 * intensity, pitchEnd: 280 },
+          ],
+          { duration: 0.42, attack: 0.008, offset }
+        );
+        // Rising reply for a classic two-tone klaxon feel.
+        this.oscBurst(
+          [
+            { type: "square", frequency: 420, level: 0.4 * intensity, pitchEnd: 780 },
+            { type: "triangle", frequency: 300, level: 0.27 * intensity, pitchEnd: 620 },
+          ],
+          { duration: 0.38, attack: 0.007, offset: offset + 0.22 }
+        );
+        this.noiseBurst({
+          duration: 0.34,
+          filter: "bandpass",
+          startFreq: 3400,
+          endFreq: 420,
+          level: 0.45 * intensity,
+          offset: offset + 0.05,
+        });
+      }
+
+      const tailOffset = 0.15 + cycles * spacing;
+      // Air bleeding from vents between cycles.
       this.noiseBurst({
-        duration: 0.6,
+        duration: 0.9,
         filter: "bandpass",
-        startFreq: 2800,
-        endFreq: 320,
-        level: 0.6,
-        offset: 0.53,
+        startFreq: 1800,
+        endFreq: 210,
+        level: 0.5,
+        offset: tailOffset - 0.2,
       });
+      // Sub-bass rumble to make the warning feel weighty.
       this.oscBurst(
         [
-          { type: "triangle", frequency: 310, level: 0.35, pitchEnd: 140 },
-          { type: "square", frequency: 280, level: 0.25, pitchEnd: 110 },
+          { type: "triangle", frequency: 260, level: 0.32, pitchEnd: 110 },
+          { type: "square", frequency: 210, level: 0.24, pitchEnd: 90 },
         ],
-        { duration: 0.55, attack: 0.005, offset: 0.9, pitchSlide: -80 }
+        { duration: 1.2, attack: 0.02, offset: tailOffset - 0.05 }
       );
     }
     playBossExplosion() {
