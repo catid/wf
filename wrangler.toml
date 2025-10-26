@@ -1,0 +1,6 @@
+name = "warning-forever"
+compatibility_date = "2025-10-26"
+pages_build_output_dir = "dist"
+
+[build]
+command = "python3 export_static.py"

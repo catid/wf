@@ -56,14 +56,15 @@ The `run` target ensures the virtual environment exists, installs dependencies w
 - The Flask server runs with debug mode enabled for rapid iteration; avoid deploying it without adjustments.
 - To reset your environment, deactivate the shell, remove `.venv`, and re-run the setup commands (or `make clean && make run`).
 
-## Deploying to Cloudflare Pages
+## Cloudflare Pages
 
-Cloudflare Pages only needs a static bundle (HTML plus `static/`). The `export_static.py` helper renders the Flask template and copies the assets into `dist/`.
+The repo now ships with a `wrangler.toml` and npm scripts so you can deploy entirely through the Cloudflare CLI (`npx wrangler`). Pages serves the pre-rendered static bundle that lives in `dist/`.
 
-1. Install dependencies (`uv pip install -r requirements.txt` or `pip install -r requirements.txt`).
-2. Run `python export_static.py` (or `uv run python export_static.py`). You should end up with `dist/index.html` and a `dist/static/` directory.
-3. In your Cloudflare Pages project:
-   - Set **Build command** to `pip install -r requirements.txt && python export_static.py` (swap in `uv` if you prefer).
-   - Set **Build output directory** to `dist`.
+1. Install the Python bits (`uv pip install -r requirements.txt` or `pip install -r requirements.txt`).
+2. Install the CLI tooling once: `npm install` (this pulls in Wrangler as a devDependency).
+3. Build the static bundle with `npm run build` (runs `python3 export_static.py` under the hood).
+4. Deploy with `npx wrangler pages deploy dist` (or `npm run deploy`). Wrangler will read `wrangler.toml`, upload `dist/`, and create/update the Cloudflare Pages project whose name matches the `name` field.
 
-Cloudflare will now rebuild the static bundle on each deployment and serve the game directly from the generated assets—no Flask server required.
+To preview the static output locally with Cloudflare’s emulator, run `npm run preview`, which rebuilds `dist/` and launches `npx wrangler pages dev dist --local`.
+
+If you need to authenticate, run `npx wrangler login` once or set the `CLOUDFLARE_ACCOUNT_ID` and an API token that has Pages write access. After that, `npx wrangler pages deploy` will use the cached credentials.
